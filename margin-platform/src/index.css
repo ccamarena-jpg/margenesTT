@@ -1,0 +1,34 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  --bg: #ffffff;
+  --bg-secondary: #f6f6f4;
+  --bg-tertiary: #f0efe9;
+  --text: #1a1a2e;
+  --muted: #888780;
+  --border: #e8e8e4;
+  --border-light: #f0efe9;
+}
+
+body {
+  margin: 0;
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg-tertiary);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+input:focus, select:focus {
+  border-color: #1a1a2e !important;
+  box-shadow: 0 0 0 3px rgba(26,26,46,0.08);
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d3d1c7; border-radius: 3px; }

@@ -194,9 +194,16 @@ create table public.planilla_grupos (
   ejecutivo_asignado text,
   costo_total_mes numeric(12,2) not null,
   periodo text not null,
+  scope_asignacion text not null default 'todos' check (scope_asignacion in ('proyecto','todos')),
+  proyecto_id uuid references public.proyectos(id),
   registrado_por uuid references public.usuarios(id),
   created_at timestamptz default now()
 );
+
+-- MIGRACIÓN (ejecutar en Supabase SQL Editor si la tabla ya existe):
+-- alter table public.planilla_grupos
+--   add column scope_asignacion text not null default 'todos' check (scope_asignacion in ('proyecto','todos')),
+--   add column proyecto_id uuid references public.proyectos(id);
 
 alter table public.planilla_grupos enable row level security;
 

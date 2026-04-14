@@ -10,6 +10,7 @@ import ModuloOperaciones from "./pages/OperacionesPage"
 import ModuloAprobaciones from "./pages/AprobacionesPage"
 import ModuloContabilidad from "./pages/ContabilidadPage"
 import ModuloPlanilla from "./pages/PlanillaPage"
+import ModuloDashboard from "./pages/DashboardPage"
 
 function AppShell({ usuario }) {
   const [page, setPage] = useState("proyectos")
@@ -20,7 +21,7 @@ function AppShell({ usuario }) {
     aprobaciones: <ModuloAprobaciones />,
     contabilidad: <ModuloContabilidad />,
     planilla:     <ModuloPlanilla />,
-    dashboard:    <Placeholder titulo="Dashboard mensual" descripcion="KPIs, márgenes por proyecto, gastos por categoría, alertas." />,
+    dashboard:    <ModuloDashboard />,
     historico:    <Placeholder titulo="Histórico" descripcion="Comparativo de márgenes y gastos mes a mes." />,
   }
 

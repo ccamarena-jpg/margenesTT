@@ -8,6 +8,7 @@ import LoginPage from "./pages/LoginPage"
 import ModuloProyectos from "./pages/ProyectosPage"
 import ModuloOperaciones from "./pages/OperacionesPage"
 import ModuloAprobaciones from "./pages/AprobacionesPage"
+import ModuloContabilidad from "./pages/ContabilidadPage"
 
 function AppShell({ usuario }) {
   const [page, setPage] = useState("proyectos")
@@ -16,7 +17,7 @@ function AppShell({ usuario }) {
     proyectos:    <ModuloProyectos />,
     operaciones:  <ModuloOperaciones />,
     aprobaciones: <ModuloAprobaciones />,
-    contabilidad: <Placeholder titulo="Contabilidad" descripcion="Registro de gastos fijos, descarga de facturas para importar al sistema contable." />,
+    contabilidad: <ModuloContabilidad />,
     planilla:     <Placeholder titulo="Planilla" descripcion="Carga mensual de costos de personal por grupo y proyecto." />,
     dashboard:    <Placeholder titulo="Dashboard mensual" descripcion="KPIs, márgenes por proyecto, gastos por categoría, alertas." />,
     historico:    <Placeholder titulo="Histórico" descripcion="Comparativo de márgenes y gastos mes a mes." />,

@@ -11,6 +11,7 @@ import ModuloAprobaciones from "./pages/AprobacionesPage"
 import ModuloContabilidad from "./pages/ContabilidadPage"
 import ModuloPlanilla from "./pages/PlanillaPage"
 import ModuloDashboard from "./pages/DashboardPage"
+import ModuloHistorico from "./pages/HistoricoPage"
 
 function AppShell({ usuario }) {
   const [page, setPage] = useState("proyectos")
@@ -22,7 +23,7 @@ function AppShell({ usuario }) {
     contabilidad: <ModuloContabilidad />,
     planilla:     <ModuloPlanilla />,
     dashboard:    <ModuloDashboard />,
-    historico:    <Placeholder titulo="Histórico" descripcion="Comparativo de márgenes y gastos mes a mes." />,
+    historico:    <ModuloHistorico />,
   }
 
   return (

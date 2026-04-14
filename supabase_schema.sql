@@ -154,6 +154,28 @@ create policy "gastos: operaciones editan borradores propios" on public.gastos
   );
 
 -- ============================================================
+-- PROVEEDORES (directorio compartido)
+-- ============================================================
+create table public.proveedores (
+  id uuid default uuid_generate_v4() primary key,
+  ruc text unique not null,
+  razon_social text not null,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.proveedores enable row level security;
+
+create policy "proveedores: todos leen" on public.proveedores
+  for select using (auth.uid() in (select id from public.usuarios where activo = true));
+
+create policy "proveedores: autenticados gestionan" on public.proveedores
+  for all using (auth.uid() in (select id from public.usuarios where activo = true));
+
+-- MIGRACIÓN (si la tabla no existe aún):
+-- Ejecutar el bloque completo arriba en Supabase SQL Editor.
+
+-- ============================================================
 -- GASTOS FIJOS (contabilidad)
 -- ============================================================
 create table public.gastos_fijos (

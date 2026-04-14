@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase"
 import { useAuth } from "../context/AuthContext"
 import { fmt, today, periodoActual } from "../lib/utils"
 import { Spinner, Modal, Field, Input, Select, Btn } from "../components/ui"
+import ProveedorSearch, { guardarProveedor } from "../components/ProveedorSearch"
 
 const TIPO_GASTO_FIJO_LABEL = {
   alquiler:       "Alquiler",
@@ -285,7 +286,7 @@ function FormGastoFijo({ gasto, onSave, onCancel }) {
       : await supabase.from("gastos_fijos").insert(payload)
 
     if (error) setError(error.message)
-    else onSave()
+    else { guardarProveedor(form.ruc_proveedor, form.razon_social_proveedor); onSave() }
     setLoading(false)
   }
 
@@ -306,12 +307,11 @@ function FormGastoFijo({ gasto, onSave, onCancel }) {
             <Input value={form.descripcion} onChange={e => set("descripcion", e.target.value)} placeholder="Ej: Alquiler oficina Miraflores — Enero 2026" />
           </Field>
         </div>
-        <Field label="RUC Proveedor">
-          <Input value={form.ruc_proveedor} onChange={e => set("ruc_proveedor", e.target.value)} placeholder="20123456789" maxLength={11} />
-        </Field>
-        <Field label="Razón social proveedor">
-          <Input value={form.razon_social_proveedor} onChange={e => set("razon_social_proveedor", e.target.value)} placeholder="Nombre del proveedor" />
-        </Field>
+        <ProveedorSearch
+          ruc={form.ruc_proveedor}
+          razonSocial={form.razon_social_proveedor}
+          onChange={(ruc, razonSocial) => { set("ruc_proveedor", ruc); set("razon_social_proveedor", razonSocial) }}
+        />
         <Field label="N° Comprobante">
           <Input value={form.nro_comprobante} onChange={e => set("nro_comprobante", e.target.value)} placeholder="F001-00001" />
         </Field>

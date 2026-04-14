@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase"
 import { useAuth } from "../context/AuthContext"
 import { fmt, today, periodoActual, TIPO_GASTO_LABEL, TIPO_GASTO_COLOR, ESTADO_GASTO_LABEL } from "../lib/utils"
 import { Spinner, Modal, Field, Input, Select, Btn, BadgeGasto } from "../components/ui"
+import ProveedorSearch, { guardarProveedor } from "../components/ProveedorSearch"
 
 export default function ModuloOperaciones() {
   const { usuario } = useAuth()
@@ -297,7 +298,7 @@ function FormGasto({ tipo, gasto, proyectos, onSave, onCancel }) {
       : await supabase.from("gastos").insert(payload)
 
     if (error) setError(error.message)
-    else onSave()
+    else { guardarProveedor(form.ruc_proveedor, form.razon_social_proveedor); onSave() }
     setLoading(false)
   }
 
@@ -384,12 +385,11 @@ function FormGasto({ tipo, gasto, proyectos, onSave, onCancel }) {
             <Field label="N° Comprobante" required>
               <Input value={form.nro_comprobante} onChange={e => set("nro_comprobante", e.target.value)} placeholder="00001234" />
             </Field>
-            <Field label="RUC Proveedor">
-              <Input value={form.ruc_proveedor} onChange={e => set("ruc_proveedor", e.target.value)} placeholder="20123456789" maxLength={11} />
-            </Field>
-            <Field label="Razón social proveedor">
-              <Input value={form.razon_social_proveedor} onChange={e => set("razon_social_proveedor", e.target.value)} placeholder="Nombre del proveedor" />
-            </Field>
+            <ProveedorSearch
+              ruc={form.ruc_proveedor}
+              razonSocial={form.razon_social_proveedor}
+              onChange={(ruc, razonSocial) => { set("ruc_proveedor", ruc); set("razon_social_proveedor", razonSocial) }}
+            />
             <Field label="Base imponible (S/.)">
               <Input type="number" value={form.base_imponible} onChange={e => handleBaseImponible(e.target.value)} placeholder="0.00" />
             </Field>
@@ -463,7 +463,7 @@ function FormLiquidar({ gasto, onSave, onCancel }) {
       tipo: gasto.tipo,
     }).eq("id", gasto.id)
     if (error) setError(error.message)
-    else onSave()
+    else { guardarProveedor(form.ruc_proveedor, form.razon_social_proveedor); onSave() }
     setLoading(false)
   }
 
@@ -489,9 +489,11 @@ function FormLiquidar({ gasto, onSave, onCancel }) {
         <Field label="N° Comprobante" required>
           <Input value={form.nro_comprobante} onChange={e => set("nro_comprobante", e.target.value)} placeholder="00001234" />
         </Field>
-        <Field label="RUC Proveedor">
-          <Input value={form.ruc_proveedor} onChange={e => set("ruc_proveedor", e.target.value)} placeholder="20123456789" />
-        </Field>
+        <ProveedorSearch
+          ruc={form.ruc_proveedor}
+          razonSocial={form.razon_social_proveedor || ""}
+          onChange={(ruc, razonSocial) => { set("ruc_proveedor", ruc); set("razon_social_proveedor", razonSocial) }}
+        />
         <Field label="Base imponible">
           <Input type="number" value={form.base_imponible} onChange={e => { set("base_imponible", e.target.value); set("igv", (parseFloat(e.target.value || 0) * 0.18).toFixed(2)) }} />
         </Field>

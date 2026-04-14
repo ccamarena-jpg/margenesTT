@@ -2,10 +2,10 @@ import { useState, useEffect, createContext, useContext } from "react"
 import { createClient } from "@supabase/supabase-js"
 
 // ── Supabase client ──────────────────────────────────────────
-// Reemplaza con tus credenciales de Supabase
-const SUPABASE_URL = "https://nnifhrcttzmxxqdvywdw.supabase.co"
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5uaWZocmN0dHpteHhxZHZ5d2R3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3ODQwMzAsImV4cCI6MjA5MDM2MDAzMH0.xVLJYWAXRFWE8H8h2n9QaiHiYce5gi51bmiWKKNn98g"
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+)
 
 // ── Auth Context ─────────────────────────────────────────────
 const AuthContext = createContext(null)

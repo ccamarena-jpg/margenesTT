@@ -323,3 +323,45 @@ left join public.facturas_proyecto fp on fp.proyecto_id = p.id
 left join public.gastos g on g.proyecto_id = p.id
 left join public.gastos_fijos gf on gf.proyecto_id = p.id
 group by p.id, p.nombre, p.cliente, p.ejecutivo, p.estado;
+
+-- ============================================================
+-- MIGRACIÓN: Módulo Proyectos (billing ledger 18 columnas)
+-- Ejecutar en Supabase SQL Editor
+-- ============================================================
+
+-- 1. Nuevos campos en proyectos
+alter table public.proyectos
+  add column if not exists tipo_servicio text,
+  add column if not exists responsable_pago text;
+
+-- 2. Nuevos campos en facturas_proyecto
+alter table public.facturas_proyecto
+  add column if not exists facturacion_concursos numeric(12,2),
+  add column if not exists fee_concursos numeric(12,2),
+  add column if not exists importe_os numeric(12,2),
+  add column if not exists os text,
+  add column if not exists he text,
+  add column if not exists fecha_vencimiento date,
+  add column if not exists fecha_pago date,
+  add column if not exists periodo text;
+
+-- 3. Actualizar constraint de estado_cobro (aprobado | pagado)
+alter table public.facturas_proyecto
+  drop constraint if exists facturas_proyecto_estado_cobro_check;
+
+alter table public.facturas_proyecto
+  add constraint facturas_proyecto_estado_cobro_check
+  check (estado_cobro in ('aprobado','pagado'));
+
+-- 4. Planilla: scope_asignacion + proyecto_id (si no se ejecutó antes)
+alter table public.planilla_grupos
+  add column if not exists scope_asignacion text not null default 'todos'
+    check (scope_asignacion in ('proyecto','todos')),
+  add column if not exists proyecto_id uuid references public.proyectos(id);
+
+-- ============================================================
+-- MIGRACIÓN: Directorio de proveedores
+-- Ejecutar solo si la tabla proveedores no existe aún
+-- ============================================================
+-- (la tabla ya está definida arriba; este bloque es referencia)
+-- create table if not exists public.proveedores ( ... );

@@ -1,72 +1,135 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../lib/supabase"
 import { useAuth } from "../context/AuthContext"
-import { fmt, today } from "../lib/utils"
-import { Badge, Spinner, Modal, Field, Input, Select, Btn } from "../components/ui"
+import { fmt, today, periodoActual } from "../lib/utils"
+import { Spinner, Modal, Field, Input, Select, Btn } from "../components/ui"
 
+// ── Constantes ───────────────────────────────────────────────
+const ESTADO_COLOR = { aprobado: "#185FA5", pagado: "#1D9E75" }
+const ESTADO_LABEL = { aprobado: "Aprobado", pagado: "Pagado" }
+
+const EJECUTIVOS = ["CLAUDIA CAMARENA", "DANIELA OLAGUIBEL", "RAUL PULIDO"]
+
+function BadgeEstado({ estado }) {
+  const color = ESTADO_COLOR[estado] || "#888780"
+  return (
+    <span style={{
+      display: "inline-block", padding: "3px 10px", borderRadius: 20,
+      fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
+      background: color + "22", color, border: `1px solid ${color}44`
+    }}>{ESTADO_LABEL[estado] || estado || "—"}</span>
+  )
+}
+
+const calcTotal = (r) =>
+  (parseFloat(r?.monto || 0)) +
+  (parseFloat(r?.facturacion_concursos || 0)) +
+  (parseFloat(r?.fee_concursos || 0))
+
+// ── Módulo principal ─────────────────────────────────────────
 export default function ModuloProyectos() {
   const { usuario } = useAuth()
+  const [rows, setRows] = useState([])
   const [proyectos, setProyectos] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
-  const [showFacturasModal, setShowFacturasModal] = useState(false)
-  const [proyectoActivo, setProyectoActivo] = useState(null)
-  const [filtros, setFiltros] = useState({ cliente: "", ejecutivo: "", estado: "", search: "" })
-  const [vista, setVista] = useState("tabla")
+  const [registroActivo, setRegistroActivo] = useState(null)
+  const [filtros, setFiltros] = useState({ cliente: "", ejecutivo: "", estado: "", periodo: "" })
 
-  const canEdit = ["admin","gerencia"].includes(usuario?.rol)
+  const canEdit = ["admin", "gerencia"].includes(usuario?.rol)
 
-  useEffect(() => { fetchProyectos() }, [])
+  useEffect(() => { fetchDatos() }, [])
 
-  const fetchProyectos = async () => {
+  const fetchDatos = async () => {
     setLoading(true)
-    const { data } = await supabase.from("proyectos").select(`*, facturas_proyecto(monto, estado_cobro)`).order("created_at", { ascending: false })
-    setProyectos(data || [])
+    const [{ data: proy }, { data: facts }] = await Promise.all([
+      supabase.from("proyectos").select("id, nombre, cliente, ejecutivo, tipo_servicio, responsable_pago, estado").order("created_at", { ascending: false }),
+      supabase.from("facturas_proyecto").select("*").order("fecha_factura", { ascending: false }),
+    ])
+
+    const proyList = proy || []
+    const factList = facts || []
+    setProyectos(proyList)
+
+    // Aplanar: una fila por factura + filas de proyectos sin facturas
+    const proyConFactura = new Set(factList.map(f => f.proyecto_id))
+    const filasFacturas = factList.map(f => ({
+      ...f,
+      _tipo: "factura",
+      proyecto: proyList.find(p => p.id === f.proyecto_id) || {},
+    }))
+    const filasSinFactura = proyList
+      .filter(p => !proyConFactura.has(p.id) && p.estado === "activo")
+      .map(p => ({ _tipo: "sin_factura", proyecto_id: p.id, proyecto: p }))
+
+    setRows([...filasFacturas, ...filasSinFactura])
     setLoading(false)
   }
 
-  const proyectosFiltrados = proyectos.filter(p => {
-    if (filtros.cliente && !p.cliente.toLowerCase().includes(filtros.cliente.toLowerCase())) return false
-    if (filtros.ejecutivo && !p.ejecutivo.toLowerCase().includes(filtros.ejecutivo.toLowerCase())) return false
-    if (filtros.estado && p.estado !== filtros.estado) return false
-    if (filtros.search && !p.nombre.toLowerCase().includes(filtros.search.toLowerCase())) return false
+  const rowsFiltrados = rows.filter(r => {
+    const p = r.proyecto || {}
+    if (filtros.cliente && !p.cliente?.toLowerCase().includes(filtros.cliente.toLowerCase())) return false
+    if (filtros.ejecutivo && p.ejecutivo !== filtros.ejecutivo) return false
+    if (filtros.estado && r.estado_cobro !== filtros.estado) return false
+    if (filtros.periodo && r.periodo !== filtros.periodo) return false
     return true
   })
 
-  const totalFacturado  = proyectosFiltrados.reduce((s, p) => s + (p.facturas_proyecto?.reduce((a, f) => a + f.monto, 0) || 0), 0)
-  const totalContratado = proyectosFiltrados.reduce((s, p) => s + (p.monto_contratado || 0), 0)
+  const soloFacturas = rowsFiltrados.filter(r => r._tipo === "factura")
+  const totalFacturado = soloFacturas.reduce((s, r) => s + calcTotal(r), 0)
+  const totalAprobado  = soloFacturas.filter(r => r.estado_cobro === "aprobado").reduce((s, r) => s + calcTotal(r), 0)
+  const totalPagado    = soloFacturas.filter(r => r.estado_cobro === "pagado").reduce((s, r) => s + calcTotal(r), 0)
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("¿Eliminar este registro?")) return
+    await supabase.from("facturas_proyecto").delete().eq("id", id)
+    fetchDatos()
+  }
 
   const exportCSV = () => {
-    const rows = [["Nombre","Cliente","Ejecutivo","Monto Contratado","Estado","Fecha Inicio","Fecha Fin","OC"]]
-    proyectosFiltrados.forEach(p => rows.push([p.nombre, p.cliente, p.ejecutivo, p.monto_contratado, p.estado, p.fecha_inicio, p.fecha_fin, p.nro_orden_compra || ""]))
-    const csv = rows.map(r => r.join(",")).join("\n")
-    const a = document.createElement("a"); a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv); a.download = "proyectos.csv"; a.click()
+    const headers = ["Cliente","Ejecutivo","Tipo Servicio","Responsable Pago","Proyecto","Periodo","Importe","Fact. Concursos","Fee Concursos","Total","Importe OS","OS","HE","Factura","Fecha Factura","Fecha Vencimiento","Estado","Fecha Pago"]
+    const rowsCSV = soloFacturas.map(r => [
+      r.proyecto?.cliente || "", r.proyecto?.ejecutivo || "",
+      r.proyecto?.tipo_servicio || "", r.proyecto?.responsable_pago || "",
+      r.proyecto?.nombre || "", r.periodo || "",
+      r.monto || 0, r.facturacion_concursos || 0, r.fee_concursos || 0,
+      calcTotal(r), r.importe_os || 0, r.os || "", r.he || "",
+      r.nro_factura_tt || "", r.fecha_factura || "", r.fecha_vencimiento || "",
+      r.estado_cobro || "", r.fecha_pago || ""
+    ])
+    const csv = [headers, ...rowsCSV].map(r => r.map(v => `"${v}"`).join(",")).join("\n")
+    const a = document.createElement("a")
+    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv)
+    a.download = `proyectos_facturacion.csv`; a.click()
   }
 
   return (
     <div>
+      {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>Proyectos</h1>
-          <p style={{ margin: "4px 0 0", color: "var(--muted)", fontSize: 14 }}>{proyectosFiltrados.length} proyectos · {fmt(totalContratado)} contratado</p>
+          <p style={{ margin: "4px 0 0", color: "var(--muted)", fontSize: 14 }}>
+            {soloFacturas.length} registro{soloFacturas.length !== 1 ? "s" : ""} · {fmt(totalFacturado)} total facturado
+          </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <Btn variant="secondary" onClick={exportCSV}>↓ Exportar</Btn>
-          {canEdit && <Btn onClick={() => { setProyectoActivo(null); setShowModal(true) }}>+ Nuevo proyecto</Btn>}
+          {canEdit && <Btn onClick={() => { setRegistroActivo(null); setShowModal(true) }}>+ Nuevo registro</Btn>}
         </div>
       </div>
 
-      {/* KPI cards */}
+      {/* KPIs */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
         {[
-          { label: "Total proyectos", value: proyectos.length, sub: `${proyectos.filter(p=>p.estado==="activo").length} activos` },
-          { label: "Monto contratado", value: fmt(totalContratado), sub: "todos los proyectos" },
-          { label: "Facturado", value: fmt(totalFacturado), sub: "facturas emitidas" },
-          { label: "Por facturar", value: fmt(totalContratado - totalFacturado), sub: "pendiente" },
+          { label: "Total facturado",  value: fmt(totalFacturado), sub: `${soloFacturas.length} facturas`, color: "var(--text)" },
+          { label: "Aprobado",         value: fmt(totalAprobado),  sub: `${soloFacturas.filter(r => r.estado_cobro === "aprobado").length} facturas`, color: "#185FA5" },
+          { label: "Pagado",           value: fmt(totalPagado),    sub: `${soloFacturas.filter(r => r.estado_cobro === "pagado").length} facturas`,   color: "#1D9E75" },
+          { label: "Por cobrar",       value: fmt(totalAprobado - totalPagado), sub: "aprobado sin pagar", color: totalAprobado > totalPagado ? "#BA7517" : "var(--muted)" },
         ].map((k, i) => (
           <div key={i} style={{ background: "var(--bg)", borderRadius: 14, padding: "20px 24px", border: "1px solid var(--border)" }}>
-            <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>{k.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 700 }}>{k.value}</div>
+            <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>{k.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: k.color }}>{k.value}</div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>{k.sub}</div>
           </div>
         ))}
@@ -74,298 +137,340 @@ export default function ModuloProyectos() {
 
       {/* Filtros */}
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <Input placeholder="Buscar proyecto..." value={filtros.search} onChange={e => setFiltros(f => ({ ...f, search: e.target.value }))} style={{ width: 200 }} />
         <Input placeholder="Cliente" value={filtros.cliente} onChange={e => setFiltros(f => ({ ...f, cliente: e.target.value }))} style={{ width: 140 }} />
-        <Input placeholder="Ejecutivo" value={filtros.ejecutivo} onChange={e => setFiltros(f => ({ ...f, ejecutivo: e.target.value }))} style={{ width: 140 }} />
-        <Select value={filtros.estado} onChange={e => setFiltros(f => ({ ...f, estado: e.target.value }))} style={{ width: 130 }}>
-          <option value="">Todos los estados</option>
-          <option value="activo">Activo</option>
-          <option value="cerrado">Cerrado</option>
-          <option value="suspendido">Suspendido</option>
+        <Select value={filtros.ejecutivo} onChange={e => setFiltros(f => ({ ...f, ejecutivo: e.target.value }))} style={{ width: 180 }}>
+          <option value="">Todos los ejecutivos</option>
+          {EJECUTIVOS.map(e => <option key={e}>{e}</option>)}
         </Select>
+        <Select value={filtros.estado} onChange={e => setFiltros(f => ({ ...f, estado: e.target.value }))} style={{ width: 150 }}>
+          <option value="">Todos los estados</option>
+          <option value="aprobado">Aprobado</option>
+          <option value="pagado">Pagado</option>
+        </Select>
+        <Input type="month" value={filtros.periodo} onChange={e => setFiltros(f => ({ ...f, periodo: e.target.value }))} style={{ width: 160 }} />
         {Object.values(filtros).some(Boolean) && (
-          <Btn variant="secondary" onClick={() => setFiltros({ cliente: "", ejecutivo: "", estado: "", search: "" })} style={{ fontSize: 12 }}>✕ Limpiar</Btn>
+          <Btn variant="secondary" onClick={() => setFiltros({ cliente: "", ejecutivo: "", estado: "", periodo: "" })} style={{ fontSize: 12 }}>✕ Limpiar</Btn>
         )}
-        <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-          {["tabla","cards"].map(v => (
-            <button key={v} onClick={() => setVista(v)} style={{ padding: "6px 14px", borderRadius: 8, border: "1.5px solid var(--border)", background: vista === v ? "#1a1a2e" : "transparent", color: vista === v ? "#fff" : "var(--muted)", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>{v === "tabla" ? "⊞ Tabla" : "⊟ Cards"}</button>
-          ))}
-        </div>
       </div>
 
-      {loading ? <Spinner /> : vista === "tabla" ? (
-        <TablaProyectos proyectos={proyectosFiltrados} canEdit={canEdit}
-          onEdit={p => { setProyectoActivo(p); setShowModal(true) }}
-          onFacturas={p => { setProyectoActivo(p); setShowFacturasModal(true) }}
-          onRefresh={fetchProyectos}
-        />
-      ) : (
-        <CardsProyectos proyectos={proyectosFiltrados} canEdit={canEdit}
-          onEdit={p => { setProyectoActivo(p); setShowModal(true) }}
-          onFacturas={p => { setProyectoActivo(p); setShowFacturasModal(true) }}
-        />
+      {/* Tabla */}
+      {loading ? <Spinner /> : (
+        <div style={{ overflowX: "auto", borderRadius: 14, border: "1px solid var(--border)" }}>
+          <table style={{ borderCollapse: "collapse", fontSize: 12, background: "var(--bg)", minWidth: 1900 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-secondary)" }}>
+                {[
+                  "Cliente","Ejecutivo","Tipo Servicio","Resp. Pago",
+                  "Proyecto","Periodo","Importe","Fact. Concursos",
+                  "Fee Concursos","Total","Importe OS","OS","HE",
+                  "Factura","Fecha Fact.","Fecha Venc.","Estado","Fecha Pago",""
+                ].map((h, i) => (
+                  <th key={i} style={{ padding: "10px 12px", textAlign: i >= 6 && i <= 11 ? "right" : "left", fontSize: 10, fontWeight: 700, color: "var(--muted)", letterSpacing: 0.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rowsFiltrados.length === 0 && (
+                <tr><td colSpan={19} style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>Sin registros</td></tr>
+              )}
+              {rowsFiltrados.map((r, i) => {
+                const p = r.proyecto || {}
+                const esSinFactura = r._tipo === "sin_factura"
+                const total = calcTotal(r)
+                return (
+                  <tr key={r.id || `sf-${r.proyecto_id}`}
+                    style={{ borderBottom: "1px solid var(--border-light)", background: i % 2 === 0 ? "transparent" : "var(--bg-secondary)", opacity: esSinFactura ? 0.5 : 1 }}>
+                    <Celda>{p.cliente || "—"}</Celda>
+                    <Celda>{p.ejecutivo || "—"}</Celda>
+                    <Celda>{p.tipo_servicio || "—"}</Celda>
+                    <Celda>{p.responsable_pago || "—"}</Celda>
+                    <td style={{ padding: "12px 12px", whiteSpace: "nowrap", maxWidth: 180 }}>
+                      <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis" }}>{p.nombre || "—"}</div>
+                    </td>
+                    <Celda>{r.periodo || "—"}</Celda>
+                    <CeldaNum>{r.monto ? fmt(r.monto) : "—"}</CeldaNum>
+                    <CeldaNum>{r.facturacion_concursos ? fmt(r.facturacion_concursos) : "—"}</CeldaNum>
+                    <CeldaNum>{r.fee_concursos ? fmt(r.fee_concursos) : "—"}</CeldaNum>
+                    <td style={{ padding: "12px 12px", textAlign: "right", fontWeight: 700, whiteSpace: "nowrap" }}>
+                      {total > 0 ? fmt(total) : "—"}
+                    </td>
+                    <CeldaNum>{r.importe_os ? fmt(r.importe_os) : "—"}</CeldaNum>
+                    <Celda>{r.os || "—"}</Celda>
+                    <Celda>{r.he || "—"}</Celda>
+                    <Celda style={{ fontWeight: 600 }}>{r.nro_factura_tt || "—"}</Celda>
+                    <Celda>{r.fecha_factura || "—"}</Celda>
+                    <Celda>{r.fecha_vencimiento || "—"}</Celda>
+                    <td style={{ padding: "12px 12px" }}>
+                      {r.estado_cobro ? <BadgeEstado estado={r.estado_cobro} /> : <span style={{ color: "var(--muted)" }}>—</span>}
+                    </td>
+                    <Celda>{r.fecha_pago || "—"}</Celda>
+                    <td style={{ padding: "12px 12px" }}>
+                      {canEdit && !esSinFactura && (
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <Btn variant="secondary" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => { setRegistroActivo(r); setShowModal(true) }}>Editar</Btn>
+                          <Btn variant="danger" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => handleDelete(r.id)}>✕</Btn>
+                        </div>
+                      )}
+                      {canEdit && esSinFactura && (
+                        <Btn variant="secondary" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => { setRegistroActivo({ proyecto_id: r.proyecto_id, proyecto: p }); setShowModal(true) }}>+ Factura</Btn>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            {soloFacturas.length > 0 && (
+              <tfoot>
+                <tr style={{ borderTop: "2px solid var(--border)", background: "var(--bg-secondary)" }}>
+                  <td colSpan={6} style={{ padding: "10px 12px", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>Total</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700 }}>{fmt(soloFacturas.reduce((s, r) => s + (r.monto || 0), 0))}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700 }}>{fmt(soloFacturas.reduce((s, r) => s + (r.facturacion_concursos || 0), 0))}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700 }}>{fmt(soloFacturas.reduce((s, r) => s + (r.fee_concursos || 0), 0))}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 800, fontSize: 13 }}>{fmt(totalFacturado)}</td>
+                  <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700 }}>{fmt(soloFacturas.reduce((s, r) => s + (r.importe_os || 0), 0))}</td>
+                  <td colSpan={8} />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
       )}
 
-      <Modal open={showModal} onClose={() => setShowModal(false)} title={proyectoActivo ? "Editar proyecto" : "Nuevo proyecto"}>
-        <FormProyecto proyecto={proyectoActivo} onSave={() => { setShowModal(false); fetchProyectos() }} onCancel={() => setShowModal(false)} />
+      <Modal open={showModal} onClose={() => setShowModal(false)}
+        title={registroActivo?.id ? "Editar registro" : "Nuevo registro"}>
+        <FormRegistro
+          registro={registroActivo}
+          proyectos={proyectos}
+          onSave={() => { setShowModal(false); fetchDatos() }}
+          onCancel={() => setShowModal(false)}
+        />
       </Modal>
-
-      <Modal open={showFacturasModal} onClose={() => setShowFacturasModal(false)} title={`Facturas — ${proyectoActivo?.nombre}`}>
-        <FacturasProyecto proyectoId={proyectoActivo?.id} canEdit={canEdit} />
-      </Modal>
     </div>
   )
 }
 
-function TablaProyectos({ proyectos, canEdit, onEdit, onFacturas }) {
-  return (
-    <div style={{ background: "var(--bg)", borderRadius: 14, border: "1px solid var(--border)", overflow: "hidden" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead>
-          <tr style={{ borderBottom: "1px solid var(--border)" }}>
-            {["Proyecto","Cliente","Ejecutivo","Monto contratado","OC","Período","Estado",""].map((h, i) => (
-              <th key={i} style={{ padding: "12px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, color: "var(--muted)", letterSpacing: 0.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {proyectos.length === 0 && (
-            <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 14 }}>No hay proyectos que coincidan con los filtros</td></tr>
-          )}
-          {proyectos.map((p, i) => {
-            const facturado = p.facturas_proyecto?.reduce((a, f) => a + f.monto, 0) || 0
-            return (
-              <tr key={p.id} style={{ borderBottom: "1px solid var(--border-light)", background: i % 2 === 0 ? "transparent" : "var(--bg-secondary)" }}>
-                <td style={{ padding: "14px 16px" }}>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{p.nombre}</div>
-                  {facturado > 0 && <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Fact: {fmt(facturado)}</div>}
-                </td>
-                <td style={{ padding: "14px 16px", fontSize: 13 }}>{p.cliente}</td>
-                <td style={{ padding: "14px 16px", fontSize: 13 }}>{p.ejecutivo}</td>
-                <td style={{ padding: "14px 16px", fontSize: 13, fontWeight: 600 }}>{fmt(p.monto_contratado)}</td>
-                <td style={{ padding: "14px 16px", fontSize: 12, color: "var(--muted)" }}>{p.nro_orden_compra || "—"}</td>
-                <td style={{ padding: "14px 16px", fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" }}>
-                  {p.fecha_inicio ? p.fecha_inicio : "—"}
-                  {p.fecha_fin ? ` → ${p.fecha_fin}` : ""}
-                </td>
-                <td style={{ padding: "14px 16px" }}><Badge estado={p.estado} /></td>
-                <td style={{ padding: "14px 16px" }}>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <Btn variant="secondary" style={{ padding: "5px 10px", fontSize: 12 }} onClick={() => onFacturas(p)}>Facturas</Btn>
-                    {canEdit && <Btn variant="secondary" style={{ padding: "5px 10px", fontSize: 12 }} onClick={() => onEdit(p)}>Editar</Btn>}
-                  </div>
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
-  )
-}
+// ── Celdas helper ────────────────────────────────────────────
+const Celda = ({ children, style }) => (
+  <td style={{ padding: "12px 12px", whiteSpace: "nowrap", color: "var(--text)", ...style }}>{children}</td>
+)
+const CeldaNum = ({ children }) => (
+  <td style={{ padding: "12px 12px", textAlign: "right", whiteSpace: "nowrap" }}>{children}</td>
+)
 
-function CardsProyectos({ proyectos, canEdit, onEdit, onFacturas }) {
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
-      {proyectos.map(p => {
-        const facturado = p.facturas_proyecto?.reduce((a, f) => a + f.monto, 0) || 0
-        const pct = p.monto_contratado > 0 ? facturado / p.monto_contratado : 0
-        return (
-          <div key={p.id} style={{ background: "var(--bg)", borderRadius: 14, padding: 24, border: "1px solid var(--border)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{p.nombre}</div>
-                <div style={{ fontSize: 12, color: "var(--muted)" }}>{p.cliente} · {p.ejecutivo}</div>
-              </div>
-              <Badge estado={p.estado} />
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
-                <span>Facturado</span><span>{fmt(facturado)} / {fmt(p.monto_contratado)}</span>
-              </div>
-              <div style={{ height: 6, background: "var(--bg-secondary)", borderRadius: 4, overflow: "hidden" }}>
-                <div style={{ height: "100%", width: `${Math.min(pct * 100, 100)}%`, background: "#1D9E75", borderRadius: 4, transition: "width 0.6s ease" }} />
-              </div>
-            </div>
-            {p.nro_orden_compra && <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>OC: {p.nro_orden_compra}</div>}
-            <div style={{ display: "flex", gap: 8 }}>
-              <Btn variant="secondary" style={{ flex: 1, justifyContent: "center", fontSize: 12 }} onClick={() => onFacturas(p)}>Facturas</Btn>
-              {canEdit && <Btn variant="secondary" style={{ flex: 1, justifyContent: "center", fontSize: 12 }} onClick={() => onEdit(p)}>Editar</Btn>}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function FormProyecto({ proyecto, onSave, onCancel }) {
+// ── Formulario combinado ─────────────────────────────────────
+function FormRegistro({ registro, proyectos, onSave, onCancel }) {
   const { usuario } = useAuth()
-  const [form, setForm] = useState({
-    nombre: proyecto?.nombre || "",
-    cliente: proyecto?.cliente || "",
-    ejecutivo: proyecto?.ejecutivo || "",
-    monto_contratado: proyecto?.monto_contratado || "",
-    nro_orden_compra: proyecto?.nro_orden_compra || "",
-    fecha_inicio: proyecto?.fecha_inicio || "",
-    fecha_fin: proyecto?.fecha_fin || "",
-    estado: proyecto?.estado || "activo",
-    requiere_operaciones: proyecto?.requiere_operaciones || false,
+  const [modoProyecto, setModoProyecto] = useState(registro?.proyecto_id ? "existente" : "nuevo")
+  const [proyectoId, setProyectoId] = useState(registro?.proyecto_id || "")
+
+  const proy = registro?.proyecto || {}
+
+  const [formP, setFormP] = useState({
+    nombre:          proy.nombre || "",
+    cliente:         proy.cliente || "",
+    ejecutivo:       proy.ejecutivo || "",
+    tipo_servicio:   proy.tipo_servicio || "",
+    responsable_pago: proy.responsable_pago || "",
   })
+
+  const [formF, setFormF] = useState({
+    periodo:                registro?.periodo || periodoActual(),
+    monto:                  registro?.monto || "",
+    facturacion_concursos:  registro?.facturacion_concursos || "",
+    fee_concursos:          registro?.fee_concursos || "",
+    importe_os:             registro?.importe_os || "",
+    os:                     registro?.os || "",
+    he:                     registro?.he || "",
+    nro_factura_tt:         registro?.nro_factura_tt || "",
+    fecha_factura:          registro?.fecha_factura || today(),
+    fecha_vencimiento:      registro?.fecha_vencimiento || "",
+    estado_cobro:           registro?.estado_cobro || "aprobado",
+    fecha_pago:             registro?.fecha_pago || "",
+  })
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const setP = (k, v) => setFormP(f => ({ ...f, [k]: v }))
+  const setF = (k, v) => setFormF(f => ({ ...f, [k]: v }))
+
+  const totalPreview = (parseFloat(formF.monto || 0) + parseFloat(formF.facturacion_concursos || 0) + parseFloat(formF.fee_concursos || 0))
+
+  // Cuando se selecciona un proyecto existente, pre-llenar campos
+  const handleSelectProyecto = (id) => {
+    setProyectoId(id)
+    const p = proyectos.find(p => p.id === id)
+    if (p) setFormP({ nombre: p.nombre, cliente: p.cliente, ejecutivo: p.ejecutivo, tipo_servicio: p.tipo_servicio || "", responsable_pago: p.responsable_pago || "" })
+  }
 
   const handleSave = async () => {
-    if (!form.nombre || !form.cliente || !form.ejecutivo || !form.monto_contratado) {
-      setError("Completa los campos obligatorios"); return
-    }
+    if (!formP.nombre || !formP.cliente || !formP.ejecutivo) { setError("Cliente, ejecutivo y proyecto son obligatorios"); return }
+
     setLoading(true); setError("")
-    const payload = { ...form, monto_contratado: parseFloat(form.monto_contratado), creado_por: usuario.id }
-    const { error } = proyecto
-      ? await supabase.from("proyectos").update(payload).eq("id", proyecto.id)
-      : await supabase.from("proyectos").insert(payload)
-    if (error) setError(error.message)
-    else onSave()
+
+    let pid = proyectoId
+
+    if (registro?.id) {
+      // Editar: actualizar proyecto y factura
+      await supabase.from("proyectos").update({
+        nombre: formP.nombre, cliente: formP.cliente, ejecutivo: formP.ejecutivo,
+        tipo_servicio: formP.tipo_servicio, responsable_pago: formP.responsable_pago,
+      }).eq("id", registro.proyecto_id)
+
+      const { error } = await supabase.from("facturas_proyecto").update({
+        ...formFParsed(formF), proyecto_id: registro.proyecto_id
+      }).eq("id", registro.id)
+      if (error) { setError(error.message); setLoading(false); return }
+
+    } else {
+      // Nuevo
+      if (modoProyecto === "nuevo" || !pid) {
+        const { data: newP, error: errP } = await supabase.from("proyectos").insert({
+          nombre: formP.nombre, cliente: formP.cliente, ejecutivo: formP.ejecutivo,
+          tipo_servicio: formP.tipo_servicio, responsable_pago: formP.responsable_pago,
+          monto_contratado: 0, estado: "activo", creado_por: usuario.id,
+        }).select("id").single()
+        if (errP) { setError(errP.message); setLoading(false); return }
+        pid = newP.id
+      } else {
+        // Actualizar proyecto existente con últimos datos
+        await supabase.from("proyectos").update({
+          tipo_servicio: formP.tipo_servicio, responsable_pago: formP.responsable_pago,
+        }).eq("id", pid)
+      }
+
+      const { error } = await supabase.from("facturas_proyecto").insert({ ...formFParsed(formF), proyecto_id: pid })
+      if (error) { setError(error.message); setLoading(false); return }
+    }
+
+    onSave()
     setLoading(false)
   }
 
   return (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div style={{ gridColumn: "1/-1" }}>
-          <Field label="Nombre del proyecto" required>
-            <Input value={form.nombre} onChange={e => set("nombre", e.target.value)} placeholder="Ej: SS Promotores BAT - Ene 2026" />
+    <div style={{ maxHeight: "75vh", overflowY: "auto", paddingRight: 4 }}>
+      {/* Sección Proyecto */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 12, paddingBottom: 8, borderBottom: "1px solid var(--border)" }}>Datos del proyecto</div>
+
+        {!registro?.id && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            {[{ id: "existente", label: "Proyecto existente" }, { id: "nuevo", label: "Nuevo proyecto" }].map(opt => (
+              <label key={opt.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "8px 14px", borderRadius: 8, border: `1.5px solid ${modoProyecto === opt.id ? "#1a1a2e" : "var(--border)"}`, background: modoProyecto === opt.id ? "#1a1a2e08" : "transparent", fontSize: 13, fontWeight: 500 }}>
+                <input type="radio" name="modoP" value={opt.id} checked={modoProyecto === opt.id} onChange={() => setModoProyecto(opt.id)} />
+                {opt.label}
+              </label>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {modoProyecto === "existente" && !registro?.id ? (
+            <div style={{ gridColumn: "1/-1" }}>
+              <Field label="Seleccionar proyecto" required>
+                <Select value={proyectoId} onChange={e => handleSelectProyecto(e.target.value)}>
+                  <option value="">Seleccionar...</option>
+                  {proyectos.map(p => <option key={p.id} value={p.id}>{p.nombre} — {p.cliente}</option>)}
+                </Select>
+              </Field>
+            </div>
+          ) : null}
+
+          <Field label="Cliente" required>
+            <Input value={formP.cliente} onChange={e => setP("cliente", e.target.value)} placeholder="Nombre del cliente" readOnly={modoProyecto === "existente" && !registro?.id} />
           </Field>
-        </div>
-        <Field label="Cliente" required>
-          <Input value={form.cliente} onChange={e => set("cliente", e.target.value)} placeholder="Ej: BAT" />
-        </Field>
-        <Field label="Ejecutivo" required>
-          <Select value={form.ejecutivo} onChange={e => set("ejecutivo", e.target.value)}>
-            <option value="">Seleccionar</option>
-            <option>CLAUDIA CAMARENA</option>
-            <option>DANIELA OLAGUIBEL</option>
-            <option>RAUL PULIDO</option>
-          </Select>
-        </Field>
-        <Field label="Monto contratado (S/.)" required>
-          <Input type="number" value={form.monto_contratado} onChange={e => set("monto_contratado", e.target.value)} placeholder="0.00" />
-        </Field>
-        <Field label="N° Orden de compra">
-          <Input value={form.nro_orden_compra} onChange={e => set("nro_orden_compra", e.target.value)} placeholder="OC-2026-001" />
-        </Field>
-        <Field label="Fecha inicio">
-          <Input type="date" value={form.fecha_inicio} onChange={e => set("fecha_inicio", e.target.value)} />
-        </Field>
-        <Field label="Fecha fin">
-          <Input type="date" value={form.fecha_fin} onChange={e => set("fecha_fin", e.target.value)} />
-        </Field>
-        <Field label="Estado">
-          <Select value={form.estado} onChange={e => set("estado", e.target.value)}>
-            <option value="activo">Activo</option>
-            <option value="cerrado">Cerrado</option>
-            <option value="suspendido">Suspendido</option>
-          </Select>
-        </Field>
-        <div style={{ gridColumn: "1/-1" }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 14 }}>
-            <input type="checkbox" checked={form.requiere_operaciones} onChange={e => set("requiere_operaciones", e.target.checked)} style={{ width: 16, height: 16 }} />
-            <span>Requiere participación de operaciones</span>
-          </label>
+          <Field label="Ejecutivo" required>
+            <Select value={formP.ejecutivo} onChange={e => setP("ejecutivo", e.target.value)}>
+              <option value="">Seleccionar</option>
+              {EJECUTIVOS.map(e => <option key={e}>{e}</option>)}
+            </Select>
+          </Field>
+          <Field label="Tipo de servicio">
+            <Input value={formP.tipo_servicio} onChange={e => setP("tipo_servicio", e.target.value)} placeholder="Ej: Auditoría, SS, Consultoría..." />
+          </Field>
+          <Field label="Responsable de pago">
+            <Input value={formP.responsable_pago} onChange={e => setP("responsable_pago", e.target.value)} placeholder="Nombre del responsable" />
+          </Field>
+          <div style={{ gridColumn: "1/-1" }}>
+            <Field label="Proyecto" required>
+              <Input value={formP.nombre} onChange={e => setP("nombre", e.target.value)} placeholder="Nombre del proyecto" readOnly={modoProyecto === "existente" && !registro?.id} />
+            </Field>
+          </div>
         </div>
       </div>
+
+      {/* Sección Factura */}
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 12, paddingBottom: 8, borderBottom: "1px solid var(--border)" }}>Datos de facturación</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Periodo">
+            <Input type="month" value={formF.periodo} onChange={e => setF("periodo", e.target.value)} />
+          </Field>
+          <Field label="Importe (S/.)">
+            <Input type="number" value={formF.monto} onChange={e => setF("monto", e.target.value)} placeholder="0.00" />
+          </Field>
+          <Field label="Facturación concursos (S/.)">
+            <Input type="number" value={formF.facturacion_concursos} onChange={e => setF("facturacion_concursos", e.target.value)} placeholder="0.00" />
+          </Field>
+          <Field label="Fee concursos (S/.)">
+            <Input type="number" value={formF.fee_concursos} onChange={e => setF("fee_concursos", e.target.value)} placeholder="0.00" />
+          </Field>
+
+          {totalPreview > 0 && (
+            <div style={{ gridColumn: "1/-1", padding: "10px 14px", background: "var(--bg-secondary)", borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 13, color: "var(--muted)" }}>Total</span>
+              <span style={{ fontSize: 16, fontWeight: 800 }}>{fmt(totalPreview)}</span>
+            </div>
+          )}
+
+          <Field label="Importe OS (S/.)">
+            <Input type="number" value={formF.importe_os} onChange={e => setF("importe_os", e.target.value)} placeholder="0.00" />
+          </Field>
+          <Field label="OS — N° Orden de Servicio">
+            <Input value={formF.os} onChange={e => setF("os", e.target.value)} placeholder="OS-2026-001" />
+          </Field>
+          <Field label="HE — N° Referencia">
+            <Input value={formF.he} onChange={e => setF("he", e.target.value)} placeholder="HE-001" />
+          </Field>
+          <Field label="N° Factura">
+            <Input value={formF.nro_factura_tt} onChange={e => setF("nro_factura_tt", e.target.value)} placeholder="F001-00001" />
+          </Field>
+          <Field label="Fecha factura">
+            <Input type="date" value={formF.fecha_factura} onChange={e => setF("fecha_factura", e.target.value)} />
+          </Field>
+          <Field label="Fecha de vencimiento">
+            <Input type="date" value={formF.fecha_vencimiento} onChange={e => setF("fecha_vencimiento", e.target.value)} />
+          </Field>
+          <Field label="Estado">
+            <Select value={formF.estado_cobro} onChange={e => setF("estado_cobro", e.target.value)}>
+              <option value="aprobado">Aprobado</option>
+              <option value="pagado">Pagado</option>
+            </Select>
+          </Field>
+          <Field label="Fecha de pago">
+            <Input type="date" value={formF.fecha_pago} onChange={e => setF("fecha_pago", e.target.value)} />
+          </Field>
+        </div>
+      </div>
+
       {error && <div style={{ color: "#E24B4A", fontSize: 13, marginTop: 12, padding: "8px 12px", background: "#E24B4A11", borderRadius: 8 }}>{error}</div>}
+
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 24 }}>
         <Btn variant="secondary" onClick={onCancel}>Cancelar</Btn>
-        <Btn onClick={handleSave} disabled={loading}>{loading ? "Guardando..." : "Guardar proyecto"}</Btn>
+        <Btn onClick={handleSave} disabled={loading}>{loading ? "Guardando..." : "Guardar"}</Btn>
       </div>
     </div>
   )
 }
 
-function FacturasProyecto({ proyectoId, canEdit }) {
-  const [facturas, setFacturas] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ nro_factura_tt: "", fecha_factura: today(), fecha_estimada_pago: "", monto: "", estado_cobro: "pendiente" })
-
-  useEffect(() => { if (proyectoId) fetchFacturas() }, [proyectoId])
-
-  const fetchFacturas = async () => {
-    const { data } = await supabase.from("facturas_proyecto").select("*").eq("proyecto_id", proyectoId).order("fecha_factura")
-    setFacturas(data || [])
-    setLoading(false)
+function formFParsed(formF) {
+  return {
+    ...formF,
+    monto:                  formF.monto ? parseFloat(formF.monto) : null,
+    facturacion_concursos:  formF.facturacion_concursos ? parseFloat(formF.facturacion_concursos) : null,
+    fee_concursos:          formF.fee_concursos ? parseFloat(formF.fee_concursos) : null,
+    importe_os:             formF.importe_os ? parseFloat(formF.importe_os) : null,
+    fecha_vencimiento:      formF.fecha_vencimiento || null,
+    fecha_pago:             formF.fecha_pago || null,
   }
-
-  const saveFactura = async () => {
-    const { error } = await supabase.from("facturas_proyecto").insert({ ...form, monto: parseFloat(form.monto), proyecto_id: proyectoId })
-    if (!error) {
-      setShowForm(false)
-      setForm({ nro_factura_tt: "", fecha_factura: today(), fecha_estimada_pago: "", monto: "", estado_cobro: "pendiente" })
-      fetchFacturas()
-    }
-  }
-
-  const COBRO_COLOR = { pendiente: "#BA7517", cobrado: "#1D9E75", vencido: "#E24B4A" }
-
-  return (
-    <div>
-      {loading ? <Spinner /> : (
-        <>
-          <div style={{ marginBottom: 16 }}>
-            {facturas.map(f => (
-              <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", background: "var(--bg-secondary)", borderRadius: 10, marginBottom: 8 }}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{f.nro_factura_tt}</div>
-                  <div style={{ fontSize: 12, color: "var(--muted)" }}>Emitida: {f.fecha_factura} · Pago est.: {f.fecha_estimada_pago || "—"}</div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontWeight: 700 }}>{fmt(f.monto)}</div>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: COBRO_COLOR[f.estado_cobro] }}>{f.estado_cobro}</span>
-                </div>
-              </div>
-            ))}
-            {facturas.length === 0 && <div style={{ color: "var(--muted)", fontSize: 14, textAlign: "center", padding: 24 }}>Sin facturas registradas</div>}
-          </div>
-          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16 }}>
-            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>Total facturado: {fmt(facturas.reduce((s, f) => s + f.monto, 0))}</div>
-          </div>
-          {canEdit && !showForm && (
-            <Btn style={{ marginTop: 16 }} onClick={() => setShowForm(true)}>+ Agregar factura</Btn>
-          )}
-          {showForm && (
-            <div style={{ marginTop: 16, padding: 16, background: "var(--bg-secondary)", borderRadius: 12 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <Field label="N° Factura TT" required>
-                  <Input value={form.nro_factura_tt} onChange={e => setForm(f => ({ ...f, nro_factura_tt: e.target.value }))} placeholder="F001-00001" />
-                </Field>
-                <Field label="Monto (S/.)" required>
-                  <Input type="number" value={form.monto} onChange={e => setForm(f => ({ ...f, monto: e.target.value }))} />
-                </Field>
-                <Field label="Fecha de factura">
-                  <Input type="date" value={form.fecha_factura} onChange={e => setForm(f => ({ ...f, fecha_factura: e.target.value }))} />
-                </Field>
-                <Field label="Fecha estimada de pago">
-                  <Input type="date" value={form.fecha_estimada_pago} onChange={e => setForm(f => ({ ...f, fecha_estimada_pago: e.target.value }))} />
-                </Field>
-                <Field label="Estado de cobro">
-                  <Select value={form.estado_cobro} onChange={e => setForm(f => ({ ...f, estado_cobro: e.target.value }))}>
-                    <option value="pendiente">Pendiente</option>
-                    <option value="cobrado">Cobrado</option>
-                    <option value="vencido">Vencido</option>
-                  </Select>
-                </Field>
-              </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <Btn onClick={saveFactura}>Guardar</Btn>
-                <Btn variant="secondary" onClick={() => setShowForm(false)}>Cancelar</Btn>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  )
 }

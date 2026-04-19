@@ -54,11 +54,104 @@ function BarraCostos({ operaciones, gastosFijos, planillaDirecta, planillaOverhe
   )
 }
 
+// ── Gráfico barras horizontales ───────────────────────────────
+function GraficoBarras({ filas }) {
+  const activos = filas.filter(f => f.facturado > 0)
+  if (activos.length === 0) return <div style={{ color: "var(--muted)", padding: 40, textAlign: "center" }}>Sin datos de facturación en el período</div>
+  const maxVal = Math.max(...activos.map(f => f.facturado), 1)
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {activos.map((f, i) => (
+        <div key={i}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+            <div>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{f.nombre}</span>
+              <span style={{ fontSize: 11, color: "var(--muted)", marginLeft: 8 }}>{f.cliente}</span>
+            </div>
+            <div style={{ display: "flex", gap: 16, fontSize: 12 }}>
+              <span style={{ color: "#185FA5", fontWeight: 600 }}>{fmt(f.facturado)}</span>
+              <span style={{ color: "#E24B4A", fontWeight: 600 }}>{fmt(f.totalCostos)}</span>
+              <span style={{ fontWeight: 700, color: margenColor(f.pctMargen) }}>{f.pctMargen !== null ? fmtPct(f.pctMargen) : "—"}</span>
+            </div>
+          </div>
+          <div style={{ position: "relative", height: 28, background: "var(--bg-secondary)", borderRadius: 6, overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: 0, left: 0, width: `${(f.facturado/maxVal*100).toFixed(1)}%`, height: "50%", background: "#185FA5", borderRadius: "6px 0 0 0", opacity: 0.7 }} />
+            <div style={{ position: "absolute", bottom: 0, left: 0, width: `${(f.totalCostos/maxVal*100).toFixed(1)}%`, height: "50%", background: "#E24B4A", borderRadius: "0 0 0 6px", opacity: 0.7 }} />
+          </div>
+        </div>
+      ))}
+      <div style={{ display: "flex", gap: 20, marginTop: 4 }}>
+        {[{ color: "#185FA5", label: "Facturado" }, { color: "#E24B4A", label: "Costos totales" }].map(l => (
+          <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+            <div style={{ width: 12, height: 12, borderRadius: 3, background: l.color }} />
+            <span style={{ color: "var(--muted)" }}>{l.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function GraficoMargenes({ filas }) {
+  const activos = filas.filter(f => f.pctMargen !== null)
+  if (activos.length === 0) return null
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {activos.map((f, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 150, fontSize: 12, textAlign: "right", color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.nombre}</div>
+          <div style={{ flex: 1, background: "var(--bg-secondary)", borderRadius: 6, height: 24, overflow: "hidden", position: "relative" }}>
+            <div style={{ width: `${Math.max(0, Math.min(100, f.pctMargen * 100)).toFixed(1)}%`, height: "100%", background: margenColor(f.pctMargen), borderRadius: 6, opacity: 0.8 }} />
+            <div style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 11, fontWeight: 700, color: margenColor(f.pctMargen) }}>{fmtPct(f.pctMargen)}</div>
+          </div>
+          <div style={{ width: 90, fontSize: 12, color: "var(--muted)", textAlign: "right" }}>{fmt(f.margen)}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function GraficoComposicion({ datos }) {
+  const total = datos.totalCostosGlobal
+  if (total === 0) return null
+  const segmentos = [
+    { label: "Operaciones",       valor: datos.totalGastosOp,          color: "#185FA5" },
+    { label: "Gastos fijos",      valor: datos.totalGastosFijos,       color: "#534AB7" },
+    { label: "Planilla directa",  valor: datos.totalPlanillaDirecta,   color: "#0F6E56" },
+    { label: "Planilla overhead", valor: datos.totalPlanillaOverhead,  color: "#BA7517" },
+  ].filter(s => s.valor > 0)
+
+  return (
+    <div>
+      <div style={{ height: 32, display: "flex", borderRadius: 8, overflow: "hidden", gap: 2, marginBottom: 16 }}>
+        {segmentos.map((s, i) => (
+          <div key={i} title={`${s.label}: ${fmt(s.valor)} (${(s.valor/total*100).toFixed(0)}%)`}
+            style={{ flex: s.valor, background: s.color, transition: "flex 0.4s" }} />
+        ))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 10 }}>
+        {segmentos.map((s, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "var(--bg-secondary)", borderRadius: 8 }}>
+            <div style={{ width: 14, height: 14, borderRadius: 4, background: s.color, flexShrink: 0 }} />
+            <div>
+              <div style={{ fontSize: 12, color: "var(--muted)" }}>{s.label}</div>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>{fmt(s.valor)}</div>
+              <div style={{ fontSize: 11, color: "var(--muted)" }}>{(s.valor/total*100).toFixed(0)}% del costo total</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Dashboard principal ───────────────────────────────────────
 export default function ModuloDashboard() {
   const [periodo, setPeriodo] = useState(periodoActual())
   const [loading, setLoading] = useState(true)
   const [datos, setDatos] = useState(null)
+  const [tab, setTab] = useState("tabla")
 
   useEffect(() => { calcularDashboard() }, [periodo])
 
@@ -154,6 +247,16 @@ export default function ModuloDashboard() {
         <Input type="month" value={periodo} onChange={e => setPeriodo(e.target.value)} style={{ width: 170 }} />
       </div>
 
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 24, borderBottom: "1px solid var(--border)" }}>
+        {[{ id: "tabla", label: "Tabla" }, { id: "graficos", label: "Gráficos" }].map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            style={{ padding: "10px 20px", border: "none", background: "transparent", cursor: "pointer", fontSize: 14, fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? "var(--text)" : "var(--muted)", borderBottom: tab === t.id ? "2px solid #1a1a2e" : "2px solid transparent", marginBottom: -1, transition: "all 0.15s" }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {loading ? <Spinner /> : !datos ? null : (
         <>
           {/* KPI cards */}
@@ -172,8 +275,8 @@ export default function ModuloDashboard() {
             ))}
           </div>
 
-          {/* Desglose global de costos */}
-          {datos.totalCostosGlobal > 0 && (
+          {/* Tabla — solo en tab Tabla */}
+          {tab === "tabla" && datos.totalCostosGlobal > 0 && (
             <div style={{ background: "var(--bg)", borderRadius: 14, padding: "20px 24px", border: "1px solid var(--border)", marginBottom: 24 }}>
               <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 16 }}>Desglose de costos del período</div>
               <BarraCostos
@@ -187,7 +290,7 @@ export default function ModuloDashboard() {
           )}
 
           {/* Tabla por proyecto */}
-          <div style={{ background: "var(--bg)", borderRadius: 14, border: "1px solid var(--border)", overflow: "hidden" }}>
+          {tab === "tabla" && <div style={{ background: "var(--bg)", borderRadius: 14, border: "1px solid var(--border)", overflow: "hidden" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border)" }}>
@@ -258,13 +361,35 @@ export default function ModuloDashboard() {
                 </tfoot>
               )}
             </table>
-          </div>
+          </div>}
 
           {/* Nota metodología */}
-          <div style={{ marginTop: 16, fontSize: 12, color: "var(--muted)", display: "flex", gap: 20, flexWrap: "wrap" }}>
-            <span>G. Fijos y Planilla overhead se distribuyen proporcionalmente según % de facturación de cada proyecto.</span>
-            {datos.totalFacturado === 0 && <span style={{ color: "#BA7517", fontWeight: 600 }}>Sin facturación en el período — no hay distribución de overhead.</span>}
-          </div>
+          {tab === "tabla" && (
+            <div style={{ marginTop: 16, fontSize: 12, color: "var(--muted)", display: "flex", gap: 20, flexWrap: "wrap" }}>
+              <span>G. Fijos y Planilla overhead se distribuyen proporcionalmente según % de facturación de cada proyecto.</span>
+              {datos.totalFacturado === 0 && <span style={{ color: "#BA7517", fontWeight: 600 }}>Sin facturación en el período — no hay distribución de overhead.</span>}
+            </div>
+          )}
+
+          {/* Tab Gráficos */}
+          {tab === "graficos" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+              <div style={{ background: "var(--bg)", borderRadius: 14, padding: "24px 28px", border: "1px solid var(--border)" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 20 }}>Facturado vs Costos por proyecto</div>
+                <GraficoBarras filas={datos.filas} />
+              </div>
+              <div style={{ background: "var(--bg)", borderRadius: 14, padding: "24px 28px", border: "1px solid var(--border)" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 20 }}>% Margen por proyecto</div>
+                <GraficoMargenes filas={datos.filas} />
+              </div>
+              {datos.totalCostosGlobal > 0 && (
+                <div style={{ background: "var(--bg)", borderRadius: 14, padding: "24px 28px", border: "1px solid var(--border)" }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 20 }}>Composición de costos del período</div>
+                  <GraficoComposicion datos={datos} />
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>

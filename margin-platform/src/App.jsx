@@ -13,6 +13,7 @@ import ModuloPlanilla from "./pages/PlanillaPage"
 import ModuloDashboard from "./pages/DashboardPage"
 import ModuloHistorico from "./pages/HistoricoPage"
 import ModuloProveedores from "./pages/ProveedoresPage"
+import ModuloFlota from "./pages/OperacionesModulo"
 
 function AppShell({ usuario }) {
   const [page, setPage] = useState("proyectos")
@@ -26,6 +27,7 @@ function AppShell({ usuario }) {
     dashboard:    <ModuloDashboard />,
     historico:    <ModuloHistorico />,
     proveedores:  <ModuloProveedores />,
+    flota:        <ModuloFlota />,
   }
 
   return (

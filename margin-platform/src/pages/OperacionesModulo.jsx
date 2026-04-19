@@ -431,12 +431,19 @@ function FormRuta({ ruta, proyectos, onSave, onCancel }) {
     setLoading(true); setError("")
 
     const payload = {
-      ...form,
+      chofer:        form.chofer,
+      vehiculo:      form.vehiculo,
+      proyecto_id:   form.proyecto_id || null,
+      fecha:         form.fecha,
+      hora_salida:   form.hora_salida || null,
+      hora_llegada:  form.hora_llegada || null,
+      origen:        form.origen || null,
+      destino:       form.destino,
+      proposito:     form.proposito || null,
       km_recorridos: form.km_recorridos ? parseFloat(form.km_recorridos) : null,
-      proyecto_id: form.proyecto_id || null,
-      hora_salida: form.hora_salida || null,
-      hora_llegada: form.hora_llegada || null,
-      creado_por: usuario.id,
+      observaciones: form.observaciones || null,
+      estado:        form.estado,
+      creado_por:    usuario.id,
     }
 
     const { error: err } = ruta

@@ -273,11 +273,12 @@ function FormRegistro({ registro, proyectos, onSave, onCancel }) {
   const proy = registro?.proyecto || {}
 
   const [formP, setFormP] = useState({
-    nombre:          proy.nombre || "",
-    cliente:         proy.cliente || "",
-    ejecutivo:       proy.ejecutivo || "",
-    tipo_servicio:   proy.tipo_servicio || "",
+    nombre:           proy.nombre || "",
+    cliente:          proy.cliente || "",
+    ejecutivo:        proy.ejecutivo || "",
+    tipo_servicio:    proy.tipo_servicio || "",
     responsable_pago: proy.responsable_pago || "",
+    monto_contratado: proy.monto_contratado || "",
   })
 
   const [formF, setFormF] = useState({
@@ -322,6 +323,7 @@ function FormRegistro({ registro, proyectos, onSave, onCancel }) {
       await supabase.from("proyectos").update({
         nombre: formP.nombre, cliente: formP.cliente, ejecutivo: formP.ejecutivo,
         tipo_servicio: formP.tipo_servicio, responsable_pago: formP.responsable_pago,
+        monto_contratado: formP.monto_contratado ? parseFloat(formP.monto_contratado) : 0,
       }).eq("id", registro.proyecto_id)
 
       const { error } = await supabase.from("facturas_proyecto").update({
@@ -335,7 +337,8 @@ function FormRegistro({ registro, proyectos, onSave, onCancel }) {
         const { data: newP, error: errP } = await supabase.from("proyectos").insert({
           nombre: formP.nombre, cliente: formP.cliente, ejecutivo: formP.ejecutivo,
           tipo_servicio: formP.tipo_servicio, responsable_pago: formP.responsable_pago,
-          monto_contratado: 0, estado: "activo", creado_por: usuario.id,
+          monto_contratado: formP.monto_contratado ? parseFloat(formP.monto_contratado) : 0,
+          estado: "activo", creado_por: usuario.id,
         }).select("id").single()
         if (errP) { setError(errP.message); setLoading(false); return }
         pid = newP.id
@@ -397,6 +400,9 @@ function FormRegistro({ registro, proyectos, onSave, onCancel }) {
           </Field>
           <Field label="Responsable de pago">
             <Input value={formP.responsable_pago} onChange={e => setP("responsable_pago", e.target.value)} placeholder="Nombre del responsable" />
+          </Field>
+          <Field label="Presupuesto contratado (S/.)">
+            <Input type="number" value={formP.monto_contratado} onChange={e => setP("monto_contratado", e.target.value)} placeholder="0.00" />
           </Field>
           <div style={{ gridColumn: "1/-1" }}>
             <Field label="Proyecto" required>

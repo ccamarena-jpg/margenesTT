@@ -112,10 +112,10 @@ export default function ModuloAprobaciones() {
                     <div style={{ fontSize: 14, fontWeight: 600 }}>{g.created_at ? new Date(g.created_at).toLocaleDateString("es-PE") : "—"}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", marginBottom: 4 }}>Presupuesto proyectado</div>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{g.monto_proyectado ? fmt(g.monto_proyectado) : "—"}</div>
-                    {presupuesto > 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>Contrato: {fmt(presupuesto)}</div>}
-                    {pctPresupuesto && <div style={{ fontSize: 12, color: parseFloat(pctPresupuesto) > 10 ? "#E24B4A" : "var(--muted)" }}>= {pctPresupuesto}% del contrato</div>}
+                    <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", marginBottom: 4 }}>Presupuesto proyecto</div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{presupuesto > 0 ? fmt(presupuesto) : "—"}</div>
+                    {g.monto_proyectado > 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>Proyectado: {fmt(g.monto_proyectado)}</div>}
+                    {pctPresupuesto && <div style={{ fontSize: 12, color: parseFloat(pctPresupuesto) > 10 ? "#E24B4A" : "var(--muted)" }}>Este gasto = {pctPresupuesto}% del contrato</div>}
                   </div>
                 </div>
                 {g.tipo !== "movilidad" && g.tipo !== "proyectado" && (

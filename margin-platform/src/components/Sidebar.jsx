@@ -2,7 +2,7 @@ import { ROL_LABEL } from "../lib/utils"
 
 const NAV_ITEMS = [
   { id: "proyectos",    label: "Proyectos",    icon: "◈", roles: ["admin","gerencia","operaciones","contabilidad","rrhh"] },
-  { id: "operaciones",  label: "Operaciones",  icon: "◎", roles: ["admin","gerencia","operaciones"] },
+  { id: "operaciones",  label: "Registro de Gastos",  icon: "◎", roles: ["admin","gerencia","operaciones"] },
   { id: "aprobaciones", label: "Aprobaciones", icon: "◉", roles: ["admin","gerencia"] },
   { id: "contabilidad", label: "Contabilidad", icon: "◇", roles: ["admin","gerencia","contabilidad"] },
   { id: "planilla",     label: "Planilla",     icon: "◈", roles: ["admin","gerencia","rrhh"] },

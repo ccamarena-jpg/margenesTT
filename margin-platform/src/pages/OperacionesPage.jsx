@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext"
 import { fmt, today, periodoActual, TIPO_GASTO_LABEL, TIPO_GASTO_COLOR, ESTADO_GASTO_LABEL } from "../lib/utils"
 import { Spinner, Modal, Field, Input, Select, Btn, BadgeGasto } from "../components/ui"
 import ProveedorSearch, { guardarProveedor } from "../components/ProveedorSearch"
+import { generarReembolso, generarCajaChica, generarMovilidad } from "../lib/formatos"
 
 export default function ModuloOperaciones() {
   const { usuario } = useAuth()
@@ -14,6 +15,7 @@ export default function ModuloOperaciones() {
   const [tipoSeleccionado, setTipoSeleccionado] = useState(null)
   const [gastoActivo, setGastoActivo] = useState(null)
   const [showLiquidarModal, setShowLiquidarModal] = useState(false)
+  const [showFormatoModal, setShowFormatoModal] = useState(false)
   const [filtros, setFiltros] = useState({ tipo: "", estado: "", proyecto: "", responsable: "", periodo: periodoActual() })
 
   const canAprobar  = ["admin", "gerencia"].includes(usuario?.rol)
@@ -79,7 +81,8 @@ export default function ModuloOperaciones() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <Btn variant="secondary" onClick={exportCSV}>↓ Exportar</Btn>
+          <Btn variant="secondary" onClick={() => setShowFormatoModal(true)}>↓ Descargar formato</Btn>
+          <Btn variant="secondary" onClick={exportCSV}>↓ Exportar CSV</Btn>
           {esOperaciones && (
             <Btn onClick={() => setTipoSeleccionado("menu")}>+ Nuevo gasto</Btn>
           )}
@@ -230,6 +233,10 @@ export default function ModuloOperaciones() {
         <FormLiquidar gasto={gastoActivo}
           onSave={() => { setShowLiquidarModal(false); fetchGastos() }}
           onCancel={() => setShowLiquidarModal(false)} />
+      </Modal>
+
+      <Modal open={showFormatoModal} onClose={() => setShowFormatoModal(false)} title="Descargar formato de rendición">
+        <FormDescargarFormato onCancel={() => setShowFormatoModal(false)} proyectos={proyectos} />
       </Modal>
     </div>
   )
@@ -519,6 +526,150 @@ function FormLiquidar({ gasto, onSave, onCancel }) {
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 24 }}>
         <Btn variant="secondary" onClick={onCancel}>Cancelar</Btn>
         <Btn onClick={handleLiquidar} disabled={loading}>{loading ? "Guardando..." : "Liquidar"}</Btn>
+      </div>
+    </div>
+  )
+}
+
+// ── Formulario descarga de formatos ──────────────────────────
+const RESPONSABLES = [
+  { value: "Roxana",  label: "Roxana Hidalgo" },
+  { value: "Edinson", label: "Edinson (Gerente Operaciones)" },
+]
+
+function FormDescargarFormato({ onCancel, proyectos }) {
+  const [tipo, setTipo]           = useState("reembolsable")
+  const [responsable, setResp]    = useState("Roxana")
+  const [nombre, setNombre]       = useState("Roxana Hidalgo")
+  const [cargo, setCargo]         = useState("")
+  const [dni, setDni]             = useState("")
+  const [fechaDesde, setDesde]    = useState(today().slice(0, 7) + "-01")
+  const [fechaHasta, setHasta]    = useState(today())
+  const [tipoPago, setTipoPago]   = useState("transferencia")
+  const [fondo, setFondo]         = useState("")
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState("")
+
+  const handleResp = (v) => {
+    setResp(v)
+    const r = RESPONSABLES.find(r => r.value === v)
+    if (r) setNombre(r.label)
+  }
+
+  const handleDescargar = async () => {
+    if (!nombre) { setError("Ingresa el nombre del responsable"); return }
+    setLoading(true); setError("")
+
+    const tipoDb = tipo // "reembolsable" | "caja_chica" | "movilidad"
+
+    const { data, error: err } = await supabase
+      .from("gastos")
+      .select("*, proyectos(nombre, cliente)")
+      .eq("tipo", tipoDb)
+      .eq("responsable", responsable)
+      .gte("fecha_gasto", fechaDesde)
+      .lte("fecha_gasto", fechaHasta)
+      .in("estado", ["liquidado", "aprobado_proyectado", "pendiente_aprobacion"])
+      .order("fecha_gasto", { ascending: true })
+
+    if (err) { setError(err.message); setLoading(false); return }
+
+    const gastos = data || []
+    if (gastos.length === 0) { setError("No hay gastos registrados para esos filtros"); setLoading(false); return }
+
+    if (tipo === "reembolsable") {
+      generarReembolso(gastos, {
+        nombre, cargo,
+        fechaDesembolso: fechaDesde.slice(0, 7),
+        fechaRendicion: fechaHasta,
+        tipoPago,
+      })
+    } else if (tipo === "caja_chica") {
+      generarCajaChica(gastos, {
+        nombre,
+        periodoDesde: fechaDesde,
+        periodoHasta: fechaHasta,
+        fondoPermanente: fondo,
+      })
+    } else if (tipo === "movilidad") {
+      generarMovilidad(gastos, {
+        nombre, dni,
+        periodo: fechaDesde.slice(0, 7),
+      })
+    }
+
+    setLoading(false)
+    onCancel()
+  }
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div style={{ gridColumn: "1/-1" }}>
+        <Field label="Tipo de formato">
+          <Select value={tipo} onChange={e => setTipo(e.target.value)}>
+            <option value="reembolsable">Entregas a rendir / Reembolsos</option>
+            <option value="caja_chica">Liquidación Caja Chica</option>
+            <option value="movilidad">Planilla de Movilidad</option>
+          </Select>
+        </Field>
+      </div>
+
+      <Field label="Responsable">
+        <Select value={responsable} onChange={e => handleResp(e.target.value)}>
+          {RESPONSABLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+        </Select>
+      </Field>
+      <Field label="Nombre completo (en el formato)">
+        <Input value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Nombre y apellido" />
+      </Field>
+
+      {tipo !== "movilidad" && (
+        <div style={{ gridColumn: "1/-1" }}>
+          <Field label="Cargo">
+            <Input value={cargo} onChange={e => setCargo(e.target.value)} placeholder="Gerente de cuenta, Auditor..." />
+          </Field>
+        </div>
+      )}
+
+      {tipo === "movilidad" && (
+        <div style={{ gridColumn: "1/-1" }}>
+          <Field label="DNI">
+            <Input value={dni} onChange={e => setDni(e.target.value)} placeholder="Número de DNI" maxLength={8} />
+          </Field>
+        </div>
+      )}
+
+      <Field label="Fecha desde">
+        <Input type="date" value={fechaDesde} onChange={e => setDesde(e.target.value)} />
+      </Field>
+      <Field label="Fecha hasta">
+        <Input type="date" value={fechaHasta} onChange={e => setHasta(e.target.value)} />
+      </Field>
+
+      {tipo === "reembolsable" && (
+        <div style={{ gridColumn: "1/-1" }}>
+          <Field label="Tipo de pago">
+            <Select value={tipoPago} onChange={e => setTipoPago(e.target.value)}>
+              <option value="transferencia">Transferencia</option>
+              <option value="efectivo">Efectivo</option>
+            </Select>
+          </Field>
+        </div>
+      )}
+
+      {tipo === "caja_chica" && (
+        <div style={{ gridColumn: "1/-1" }}>
+          <Field label="Fondo permanente (S/.)">
+            <Input type="number" value={fondo} onChange={e => setFondo(e.target.value)} placeholder="0.00" />
+          </Field>
+        </div>
+      )}
+
+      {error && <div style={{ gridColumn: "1/-1", color: "#E24B4A", fontSize: 13, padding: "8px 12px", background: "#E24B4A11", borderRadius: 8 }}>{error}</div>}
+
+      <div style={{ gridColumn: "1/-1", display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+        <Btn variant="secondary" onClick={onCancel}>Cancelar</Btn>
+        <Btn onClick={handleDescargar} disabled={loading}>{loading ? "Generando..." : "↓ Generar PDF"}</Btn>
       </div>
     </div>
   )

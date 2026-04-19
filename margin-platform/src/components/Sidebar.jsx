@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { id: "planilla",     label: "Planilla",     icon: "◈", roles: ["admin","gerencia","rrhh"] },
   { id: "dashboard",    label: "Dashboard",    icon: "▣", roles: ["admin","gerencia"] },
   { id: "historico",    label: "Histórico",    icon: "◫", roles: ["admin","gerencia"] },
+  { id: "proveedores",  label: "Proveedores",  icon: "◑", roles: ["admin","gerencia","operaciones"] },
 ]
 
 function PendingBadge() {

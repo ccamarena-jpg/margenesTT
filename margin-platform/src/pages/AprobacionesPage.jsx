@@ -96,7 +96,7 @@ export default function ModuloAprobaciones() {
                   </div>
                   <div style={{ fontSize: 20, fontWeight: 700 }}>{fmt(monto)}</div>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
                   <div>
                     <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", marginBottom: 4 }}>Descripción</div>
                     <div style={{ fontSize: 14 }}>{g.descripcion}</div>
@@ -108,9 +108,14 @@ export default function ModuloAprobaciones() {
                     <div style={{ fontSize: 12, color: "var(--muted)" }}>{g.proyectos?.cliente}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", marginBottom: 4 }}>Presupuesto proyecto</div>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{fmt(presupuesto)}</div>
-                    {pctPresupuesto && <div style={{ fontSize: 12, color: parseFloat(pctPresupuesto) > 10 ? "#E24B4A" : "var(--muted)" }}>Este gasto = {pctPresupuesto}% del contrato</div>}
+                    <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", marginBottom: 4 }}>Fecha requerimiento</div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{g.created_at ? new Date(g.created_at).toLocaleDateString("es-PE") : "—"}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", marginBottom: 4 }}>Presupuesto proyectado</div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{g.monto_proyectado ? fmt(g.monto_proyectado) : "—"}</div>
+                    {presupuesto > 0 && <div style={{ fontSize: 12, color: "var(--muted)" }}>Contrato: {fmt(presupuesto)}</div>}
+                    {pctPresupuesto && <div style={{ fontSize: 12, color: parseFloat(pctPresupuesto) > 10 ? "#E24B4A" : "var(--muted)" }}>= {pctPresupuesto}% del contrato</div>}
                   </div>
                 </div>
                 {g.tipo !== "movilidad" && g.tipo !== "proyectado" && (

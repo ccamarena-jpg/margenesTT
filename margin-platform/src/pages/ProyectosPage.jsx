@@ -34,7 +34,7 @@ export default function ModuloProyectos() {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [registroActivo, setRegistroActivo] = useState(null)
-  const [filtros, setFiltros] = useState({ cliente: "", ejecutivo: "", estado: "", periodo: "" })
+  const [filtros, setFiltros] = useState({ cliente: "", tipoServicio: "", ejecutivo: "", estado: "", periodo: "" })
 
   const canEdit = ["admin", "gerencia"].includes(usuario?.rol)
 
@@ -66,9 +66,12 @@ export default function ModuloProyectos() {
     setLoading(false)
   }
 
+  const tiposServicio = [...new Set(proyectos.map(p => p.tipo_servicio).filter(Boolean))].sort()
+
   const rowsFiltrados = rows.filter(r => {
     const p = r.proyecto || {}
     if (filtros.cliente && !p.cliente?.toLowerCase().includes(filtros.cliente.toLowerCase())) return false
+    if (filtros.tipoServicio && p.tipo_servicio !== filtros.tipoServicio) return false
     if (filtros.ejecutivo && p.ejecutivo !== filtros.ejecutivo) return false
     if (filtros.estado && r.estado_cobro !== filtros.estado) return false
     if (filtros.periodo && r.periodo !== filtros.periodo) return false
@@ -138,6 +141,10 @@ export default function ModuloProyectos() {
       {/* Filtros */}
       <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <Input placeholder="Cliente" value={filtros.cliente} onChange={e => setFiltros(f => ({ ...f, cliente: e.target.value }))} style={{ width: 140 }} />
+        <Select value={filtros.tipoServicio} onChange={e => setFiltros(f => ({ ...f, tipoServicio: e.target.value }))} style={{ width: 190 }}>
+          <option value="">Todos los tipos de servicio</option>
+          {tiposServicio.map(t => <option key={t} value={t}>{t}</option>)}
+        </Select>
         <Select value={filtros.ejecutivo} onChange={e => setFiltros(f => ({ ...f, ejecutivo: e.target.value }))} style={{ width: 180 }}>
           <option value="">Todos los ejecutivos</option>
           {EJECUTIVOS.map(e => <option key={e}>{e}</option>)}
@@ -149,7 +156,7 @@ export default function ModuloProyectos() {
         </Select>
         <Input type="month" value={filtros.periodo} onChange={e => setFiltros(f => ({ ...f, periodo: e.target.value }))} style={{ width: 160 }} />
         {Object.values(filtros).some(Boolean) && (
-          <Btn variant="secondary" onClick={() => setFiltros({ cliente: "", ejecutivo: "", estado: "", periodo: "" })} style={{ fontSize: 12 }}>✕ Limpiar</Btn>
+          <Btn variant="secondary" onClick={() => setFiltros({ cliente: "", tipoServicio: "", ejecutivo: "", estado: "", periodo: "" })} style={{ fontSize: 12 }}>✕ Limpiar</Btn>
         )}
       </div>
 

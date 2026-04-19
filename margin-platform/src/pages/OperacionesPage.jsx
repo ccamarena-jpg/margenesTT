@@ -71,7 +71,7 @@ export default function ModuloOperaciones() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>Operaciones</h1>
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>Registro de Gastos</h1>
           <p style={{ margin: "4px 0 0", color: "var(--muted)", fontSize: 14 }}>
             {pendientes > 0 && <span style={{ color: "#BA7517", fontWeight: 600 }}>{pendientes} pendiente{pendientes > 1 ? "s" : ""} de aprobación · </span>}
             {proyectados > 0 && <span style={{ color: "#185FA5", fontWeight: 600 }}>{proyectados} proyectado{proyectados > 1 ? "s" : ""} por liquidar · </span>}
@@ -197,20 +197,20 @@ export default function ModuloOperaciones() {
                   <td style={{ padding: "12px 14px", fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap" }}>{g.fecha_gasto || "—"}</td>
                   <td style={{ padding: "12px 14px" }}><BadgeGasto estado={g.estado} /></td>
                   <td style={{ padding: "12px 14px" }}>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "nowrap" }}>
-                      {g.estado === "borrador" && esOperaciones && (
-                        <>
-                          <Btn variant="secondary" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => { setGastoActivo(g); setTipoSeleccionado(g.tipo); setShowModal(true) }}>Editar</Btn>
+                    {esOperaciones && (
+                      <div style={{ display: "flex", gap: 6, flexWrap: "nowrap" }}>
+                        <Btn variant="secondary" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => { setGastoActivo(g); setTipoSeleccionado(g.tipo); setShowModal(true) }}>Editar</Btn>
+                        {g.estado === "borrador" && (
                           <Btn variant="success" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => enviarAprobacion(g.id)}>Enviar</Btn>
-                        </>
-                      )}
-                      {g.estado === "aprobado_proyectado" && esOperaciones && (
-                        <Btn variant="secondary" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => { setGastoActivo(g); setShowLiquidarModal(true) }}>Liquidar</Btn>
-                      )}
-                      {g.estado === "pendiente_reaprobacion" && esOperaciones && (
-                        <Btn variant="secondary" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => { setGastoActivo(g); setShowLiquidarModal(true) }}>Ver</Btn>
-                      )}
-                    </div>
+                        )}
+                        {g.estado === "aprobado_proyectado" && (
+                          <Btn variant="secondary" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => { setGastoActivo(g); setShowLiquidarModal(true) }}>Liquidar</Btn>
+                        )}
+                        {g.estado === "pendiente_reaprobacion" && (
+                          <Btn variant="secondary" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => { setGastoActivo(g); setShowLiquidarModal(true) }}>Ver</Btn>
+                        )}
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}

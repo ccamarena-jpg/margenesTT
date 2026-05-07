@@ -21,10 +21,7 @@ function BadgeEstado({ estado }) {
   )
 }
 
-const calcTotal = (r) =>
-  (parseFloat(r?.monto || 0)) +
-  (parseFloat(r?.facturacion_concursos || 0)) +
-  (parseFloat(r?.fee_concursos || 0))
+const calcTotal = (r) => parseFloat(r?.monto || 0)
 
 // ── Módulo principal ─────────────────────────────────────────
 export default function ModuloProyectos() {
@@ -302,7 +299,7 @@ function FormRegistro({ registro, proyectos, onSave, onCancel }) {
   const setP = (k, v) => setFormP(f => ({ ...f, [k]: v }))
   const setF = (k, v) => setFormF(f => ({ ...f, [k]: v }))
 
-  const totalPreview = (parseFloat(formF.monto || 0) + parseFloat(formF.facturacion_concursos || 0) + parseFloat(formF.fee_concursos || 0))
+  const totalPreview = parseFloat(formF.monto || 0)
 
   // Cuando se selecciona un proyecto existente, pre-llenar campos
   const handleSelectProyecto = (id) => {

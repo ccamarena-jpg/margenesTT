@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase"
 import { useAuth } from "../context/AuthContext"
 import { fmt, today, periodoActual } from "../lib/utils"
 import { Spinner, Modal, Field, Input, Select, Btn } from "../components/ui"
+import * as XLSX from "xlsx"
 
 // ── Constantes ───────────────────────────────────────────────
 const ESTADO_COLOR = { aprobado: "#185FA5", pagado: "#1D9E75" }
@@ -31,6 +32,7 @@ export default function ModuloProyectos() {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [registroActivo, setRegistroActivo] = useState(null)
+  const [showImportModal, setShowImportModal] = useState(false)
   const [filtros, setFiltros] = useState({ cliente: "", tipoServicio: "", ejecutivo: "", estado: "", periodo: "" })
 
   const canEdit = ["admin", "gerencia"].includes(usuario?.rol)
@@ -115,6 +117,7 @@ export default function ModuloProyectos() {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <Btn variant="secondary" onClick={exportCSV}>↓ Exportar</Btn>
+          {canEdit && <Btn variant="secondary" onClick={() => setShowImportModal(true)}>↑ Importar Excel</Btn>}
           {canEdit && <Btn onClick={() => { setRegistroActivo(null); setShowModal(true) }}>+ Nuevo registro</Btn>}
         </div>
       </div>
@@ -247,6 +250,14 @@ export default function ModuloProyectos() {
           proyectos={proyectos}
           onSave={() => { setShowModal(false); fetchDatos() }}
           onCancel={() => setShowModal(false)}
+        />
+      </Modal>
+
+      <Modal open={showImportModal} onClose={() => setShowImportModal(false)} title="Importar proyectos y facturas desde Excel">
+        <FormImportarProyectos
+          usuario={usuario}
+          onSave={() => { setShowImportModal(false); fetchDatos() }}
+          onCancel={() => setShowImportModal(false)}
         />
       </Modal>
     </div>
@@ -500,4 +511,235 @@ function formFParsed(formF) {
     fecha_vencimiento:      formF.fecha_vencimiento || null,
     fecha_pago:             formF.fecha_pago || null,
   }
+}
+
+// ── Importar proyectos y facturas masivamente desde Excel ─────
+function FormImportarProyectos({ usuario, onSave, onCancel }) {
+  const [filas, setFilas]     = useState([])
+  const [preview, setPreview] = useState([])
+  const [error, setError]     = useState("")
+  const [loading, setLoading] = useState(false)
+  const [resultado, setResultado] = useState(null)
+
+  // Columnas esperadas en el Excel (en orden recomendado)
+  const COLUMNAS = [
+    "cliente", "ejecutivo", "tipo_servicio", "responsable_pago", "proyecto",
+    "periodo", "importe", "facturacion_concursos", "fee_concursos",
+    "importe_os", "os", "he", "nro_factura", "fecha_factura",
+    "fecha_vencimiento", "estado_cobro", "fecha_pago",
+    "usa_operaciones", "interviene_roxana", "interviene_jl",
+    "monto_contratado",
+  ]
+
+  const descargarPlantilla = () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      COLUMNAS,
+      [
+        "BAT Perú", "CLAUDIA CAMARENA", "Auditoría", "Cristina López",
+        "Auditoría BAT 2026", "2026-05", 15000, "", "", "", "", "",
+        "F001-00001", "2026-05-10", "2026-06-10", "aprobado", "",
+        "SI", "NO", "NO", 45000,
+      ],
+    ])
+    // Ajustar ancho de columnas
+    ws["!cols"] = COLUMNAS.map(() => ({ wch: 18 }))
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Proyectos")
+    XLSX.writeFile(wb, "plantilla_proyectos.xlsx")
+  }
+
+  const handleFile = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setError(""); setResultado(null); setFilas([]); setPreview([])
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const wb = XLSX.read(ev.target.result, { type: "binary" })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        const data = XLSX.utils.sheet_to_json(ws, { defval: "" })
+        setFilas(data.slice(0, 500))
+        setPreview(data.slice(0, 5))
+      } catch {
+        setError("No se pudo leer el archivo. Asegúrate que sea .xlsx o .xls")
+      }
+    }
+    reader.readAsBinaryString(file)
+  }
+
+  const parseBool = (v) => {
+    const s = (v || "").toString().trim().toUpperCase()
+    return s === "SI" || s === "SÍ" || s === "1" || s === "TRUE" || s === "YES"
+  }
+
+  const handleImportar = async () => {
+    if (filas.length === 0) { setError("No hay filas para importar"); return }
+    setLoading(true); setError(""); setResultado(null)
+
+    let importados = 0
+    let saltados   = 0
+    const errores  = []
+
+    // Cache de proyectos existentes para evitar duplicados
+    const { data: proyExistentes } = await supabase
+      .from("proyectos")
+      .select("id, nombre, cliente")
+
+    const proyMap = {}
+    ;(proyExistentes || []).forEach(p => {
+      proyMap[`${p.nombre}|${p.cliente}`.toLowerCase()] = p.id
+    })
+
+    for (const fila of filas) {
+      const nombreProyecto = (fila.proyecto || fila["Proyecto"] || "").toString().trim()
+      const cliente        = (fila.cliente  || fila["Cliente"]  || "").toString().trim()
+
+      if (!nombreProyecto || !cliente) { saltados++; continue }
+
+      try {
+        // Buscar o crear proyecto
+        const key = `${nombreProyecto}|${cliente}`.toLowerCase()
+        let proyId = proyMap[key]
+
+        if (!proyId) {
+          const { data: newP, error: errP } = await supabase
+            .from("proyectos")
+            .insert({
+              nombre:            nombreProyecto,
+              cliente,
+              ejecutivo:         (fila.ejecutivo || fila["Ejecutivo"] || "").toString().trim() || null,
+              tipo_servicio:     (fila.tipo_servicio || fila["Tipo Servicio"] || "").toString().trim() || null,
+              responsable_pago:  (fila.responsable_pago || fila["Responsable Pago"] || "").toString().trim() || null,
+              monto_contratado:  parseFloat(fila.monto_contratado || fila["Monto Contratado"] || 0) || null,
+              usa_operaciones:   parseBool(fila.usa_operaciones  || fila["Usa Operaciones"]),
+              interviene_roxana: parseBool(fila.interviene_roxana || fila["Interviene Roxana"]),
+              interviene_jl:     parseBool(fila.interviene_jl    || fila["Interviene JL"]),
+              estado:            "activo",
+              creado_por:        usuario.id,
+            })
+            .select("id")
+            .single()
+
+          if (errP) { errores.push(`"${nombreProyecto}": ${errP.message}`); continue }
+          proyId = newP.id
+          proyMap[key] = proyId
+        }
+
+        // Insertar factura si hay periodo o importe
+        const monto   = parseFloat(fila.importe || fila["Importe"] || 0) || null
+        const periodo = (fila.periodo || fila["Periodo"] || "").toString().trim() || null
+
+        if (monto || periodo) {
+          const { error: errF } = await supabase.from("facturas_proyecto").insert({
+            proyecto_id:           proyId,
+            periodo,
+            monto,
+            facturacion_concursos: parseFloat(fila.facturacion_concursos || fila["Fact. Concursos"] || 0) || null,
+            fee_concursos:         parseFloat(fila.fee_concursos         || fila["Fee Concursos"]  || 0) || null,
+            importe_os:            parseFloat(fila.importe_os            || fila["Importe OS"]     || 0) || null,
+            os:                    (fila.os || fila["OS"] || "").toString().trim() || null,
+            he:                    (fila.he || fila["HE"] || "").toString().trim() || null,
+            nro_factura_tt:        (fila.nro_factura || fila["Nro Factura"] || "").toString().trim() || null,
+            fecha_factura:         (fila.fecha_factura    || fila["Fecha Factura"]    || "").toString().trim() || null,
+            fecha_vencimiento:     (fila.fecha_vencimiento|| fila["Fecha Vencimiento"]|| "").toString().trim() || null,
+            estado_cobro:          (fila.estado_cobro     || fila["Estado Cobro"]     || "aprobado").toString().trim() || "aprobado",
+            fecha_pago:            (fila.fecha_pago       || fila["Fecha Pago"]       || "").toString().trim() || null,
+          })
+          if (errF) { errores.push(`Factura "${nombreProyecto}": ${errF.message}`); continue }
+        }
+
+        importados++
+      } catch (e) {
+        errores.push(`"${nombreProyecto}": ${e.message}`)
+      }
+    }
+
+    setLoading(false)
+    setResultado({ importados, saltados, errores })
+    if (errores.length === 0) setTimeout(onSave, 1800)
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, maxHeight: "75vh", overflowY: "auto", paddingRight: 4 }}>
+
+      {/* Instrucciones */}
+      <div style={{ padding: "12px 16px", background: "var(--bg-secondary)", borderRadius: 10, fontSize: 13, lineHeight: 1.6 }}>
+        <strong>Columnas requeridas:</strong> cliente, ejecutivo, proyecto, periodo, importe<br />
+        <strong>Columnas opcionales:</strong> tipo_servicio, responsable_pago, facturacion_concursos, fee_concursos, importe_os, os, he, nro_factura, fecha_factura, fecha_vencimiento, estado_cobro (aprobado/pagado), fecha_pago, monto_contratado, usa_operaciones (SI/NO), interviene_roxana (SI/NO), interviene_jl (SI/NO)<br />
+        <strong>Nota:</strong> Si el proyecto ya existe (mismo nombre + cliente) se reutiliza y solo se agrega la factura.
+      </div>
+
+      <Btn variant="secondary" onClick={descargarPlantilla} style={{ alignSelf: "flex-start" }}>
+        ↓ Descargar plantilla Excel
+      </Btn>
+
+      <Field label="Seleccionar archivo Excel (.xlsx / .xls)">
+        <input type="file" accept=".xlsx,.xls"
+          onChange={handleFile}
+          style={{ fontSize: 13, padding: "8px 0" }} />
+      </Field>
+
+      {/* Preview */}
+      {preview.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600, marginBottom: 6 }}>
+            Vista previa — primeras {preview.length} filas de {filas.length} totales
+          </div>
+          <div style={{ overflowX: "auto", borderRadius: 8, border: "1px solid var(--border)" }}>
+            <table style={{ borderCollapse: "collapse", fontSize: 11, width: "100%" }}>
+              <thead>
+                <tr style={{ background: "var(--bg-secondary)" }}>
+                  {["Cliente","Proyecto","Periodo","Importe","Estado"].map(h => (
+                    <th key={h} style={{ padding: "6px 10px", textAlign: "left", fontWeight: 700, color: "var(--muted)", whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {preview.map((r, i) => (
+                  <tr key={i} style={{ borderTop: "1px solid var(--border-light)" }}>
+                    <td style={{ padding: "6px 10px" }}>{r.cliente || r["Cliente"] || "—"}</td>
+                    <td style={{ padding: "6px 10px" }}>{r.proyecto || r["Proyecto"] || "—"}</td>
+                    <td style={{ padding: "6px 10px" }}>{r.periodo  || r["Periodo"]  || "—"}</td>
+                    <td style={{ padding: "6px 10px", textAlign: "right" }}>{r.importe  || r["Importe"]  || "—"}</td>
+                    <td style={{ padding: "6px 10px" }}>{r.estado_cobro || r["Estado Cobro"] || "aprobado"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Resultado */}
+      {resultado && (
+        <div style={{
+          padding: "12px 16px", borderRadius: 10,
+          background: resultado.errores.length === 0 ? "#1D9E7511" : "#E24B4A11",
+          border: `1px solid ${resultado.errores.length === 0 ? "#1D9E7544" : "#E24B4A44"}`,
+          fontSize: 13,
+        }}>
+          <strong>{resultado.importados} registros importados</strong>
+          {resultado.saltados > 0 && <span style={{ color: "var(--muted)", marginLeft: 8 }}>{resultado.saltados} filas vacías saltadas</span>}
+          {resultado.errores.length > 0 && (
+            <div style={{ marginTop: 8, color: "#E24B4A" }}>
+              {resultado.errores.slice(0, 5).map((e, i) => <div key={i}>• {e}</div>)}
+              {resultado.errores.length > 5 && <div>…y {resultado.errores.length - 5} más</div>}
+            </div>
+          )}
+          {resultado.errores.length === 0 && <div style={{ color: "#1D9E75", marginTop: 4 }}>Cerrando…</div>}
+        </div>
+      )}
+
+      {error && (
+        <div style={{ color: "#E24B4A", fontSize: 13, padding: "8px 12px", background: "#E24B4A11", borderRadius: 8 }}>{error}</div>
+      )}
+
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <Btn variant="secondary" onClick={onCancel}>Cancelar</Btn>
+        <Btn onClick={handleImportar} disabled={loading || filas.length === 0}>
+          {loading ? "Importando..." : `Importar ${filas.length} fila${filas.length !== 1 ? "s" : ""}`}
+        </Btn>
+      </div>
+    </div>
+  )
 }

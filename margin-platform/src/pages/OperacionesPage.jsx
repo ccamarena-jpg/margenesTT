@@ -339,6 +339,11 @@ function FormGasto({ tipo, gasto, proyectos, onSave, onCancel }) {
             <option value="">Seleccionar</option>
             <option value="Roxana">Roxana Hidalgo</option>
             <option value="Edinson">Edinson (Gerente Operaciones)</option>
+            <option value="Claudia">Claudia Camarena</option>
+            <option value="Daniela">Daniela Olaguibel</option>
+            <option value="Raul">Raúl Pulido</option>
+            <option value="Massiel">Massiel Carhuallanqui</option>
+            <option value="Gabriel">Gabriel Hidalgo</option>
           </Select>
         </Field>
         <Field label="Período">
@@ -559,8 +564,13 @@ function FormLiquidar({ gasto, onSave, onCancel }) {
 
 // ── Formulario descarga de formatos ──────────────────────────
 const RESPONSABLES = [
-  { value: "Roxana",  label: "Roxana Hidalgo" },
-  { value: "Edinson", label: "Edinson (Gerente Operaciones)" },
+  { value: "Roxana",   label: "Roxana Hidalgo" },
+  { value: "Edinson",  label: "Edinson (Gerente Operaciones)" },
+  { value: "Claudia",  label: "Claudia Camarena" },
+  { value: "Daniela",  label: "Daniela Olaguibel" },
+  { value: "Raul",     label: "Raúl Pulido" },
+  { value: "Massiel",  label: "Massiel Carhuallanqui" },
+  { value: "Gabriel",  label: "Gabriel Hidalgo" },
 ]
 
 function FormDescargarFormato({ onCancel, proyectos }) {

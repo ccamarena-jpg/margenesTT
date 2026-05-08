@@ -24,13 +24,14 @@ const margenBg = (pct) => {
 }
 
 // ── Componente barra de costo ─────────────────────────────────
-function BarraCostos({ operaciones, gastosFijos, planillaDirecta, planillaOverhead, total }) {
+function BarraCostos({ gVariables, gastosFijos, planillaCampo, planillaOficina, planillaOperaciones, total }) {
   if (total === 0) return null
   const segmentos = [
-    { label: "Operaciones",       valor: operaciones,     color: "#185FA5" },
-    { label: "Gastos fijos",      valor: gastosFijos,     color: "#534AB7" },
-    { label: "Planilla directa",  valor: planillaDirecta, color: "#0F6E56" },
-    { label: "Planilla overhead", valor: planillaOverhead,color: "#BA7517" },
+    { label: "G. Variables",      valor: gVariables,          color: "#185FA5" },
+    { label: "G. Fijos",          valor: gastosFijos,          color: "#534AB7" },
+    { label: "P. Campo",          valor: planillaCampo,        color: "#D85A30" },
+    { label: "P. Oficina",        valor: planillaOficina,      color: "#0F6E56" },
+    { label: "P. Operaciones",    valor: planillaOperaciones,  color: "#BA7517" },
   ].filter(s => s.valor > 0)
 
   return (
@@ -116,10 +117,11 @@ function GraficoComposicion({ datos }) {
   const total = datos.totalCostosGlobal
   if (total === 0) return null
   const segmentos = [
-    { label: "Operaciones",       valor: datos.totalGastosOp,          color: "#185FA5" },
-    { label: "Gastos fijos",      valor: datos.totalGastosFijos,       color: "#534AB7" },
-    { label: "Planilla directa",  valor: datos.totalPlanillaDirecta,   color: "#0F6E56" },
-    { label: "Planilla overhead", valor: datos.totalPlanillaOverhead,  color: "#BA7517" },
+    { label: "G. Variables",    valor: datos.totGVar,           color: "#185FA5" },
+    { label: "G. Fijos",        valor: datos.totGFijos,         color: "#534AB7" },
+    { label: "P. Campo",        valor: datos.totPlanillaCampo,  color: "#D85A30" },
+    { label: "P. Oficina",      valor: datos.totPlanillaOficina,color: "#0F6E56" },
+    { label: "P. Operaciones",  valor: datos.totPlanillaOp,     color: "#BA7517" },
   ].filter(s => s.valor > 0)
 
   return (
@@ -164,54 +166,188 @@ export default function ModuloDashboard() {
       { data: gastos },
       { data: gastosFijos },
       { data: planilla },
+      { data: rutas },
     ] = await Promise.all([
-      supabase.from("proyectos").select("id, nombre, cliente, ejecutivo, monto_contratado, estado").eq("estado", "activo"),
+      supabase.from("proyectos").select("id, nombre, cliente, ejecutivo, monto_contratado, estado, usa_operaciones, interviene_roxana, interviene_jl").eq("estado", "activo"),
       supabase.from("facturas_proyecto").select("proyecto_id, monto").gte("fecha_factura", `${periodo}-01`).lt("fecha_factura", `${nextPeriod(periodo)}-01`),
-      supabase.from("gastos").select("proyecto_id, monto_real").eq("estado", "liquidado").eq("periodo", periodo),
+      supabase.from("gastos").select("proyecto_id, monto_real, tipo_costo, scope_asignacion").eq("estado", "liquidado").eq("periodo", periodo),
       supabase.from("gastos_fijos").select("monto_sin_igv, igv").eq("periodo", periodo),
-      supabase.from("planilla_grupos").select("proyecto_id, costo_total_mes, scope_asignacion").eq("periodo", periodo),
+      supabase.from("planilla_grupos").select("proyecto_id, costo_total_mes, scope_asignacion, tipo, persona_especial").eq("periodo", periodo),
+      supabase.from("rutas").select("proyecto_id, chofer").gte("fecha", `${periodo}-01`).lt("fecha", `${nextPeriod(periodo)}-01`).eq("estado", "completado"),
     ])
 
-    // ── Totales globales ─────────────────────────────────────
+    const proyList = proyectos || []
+
+    // ── Facturación por proyecto ─────────────────────────────
     const facturadoPorProyecto = {}
     ;(facturas || []).forEach(f => {
       facturadoPorProyecto[f.proyecto_id] = (facturadoPorProyecto[f.proyecto_id] || 0) + (f.monto || 0)
     })
-
     const totalFacturado = Object.values(facturadoPorProyecto).reduce((s, v) => s + v, 0)
 
-    const gastoOpPorProyecto = {}
-    ;(gastos || []).forEach(g => {
-      gastoOpPorProyecto[g.proyecto_id] = (gastoOpPorProyecto[g.proyecto_id] || 0) + (g.monto_real || 0)
+    // ── Rutas por chofer por proyecto ────────────────────────
+    const rutasPorChofer = {}
+    ;(rutas || []).forEach(r => {
+      const c = r.chofer; const pid = r.proyecto_id
+      if (!rutasPorChofer[c]) rutasPorChofer[c] = {}
+      rutasPorChofer[c][pid] = (rutasPorChofer[c][pid] || 0) + 1
+    })
+    const totalRutasPorChofer = {}
+    Object.entries(rutasPorChofer).forEach(([c, pmap]) => {
+      totalRutasPorChofer[c] = Object.values(pmap).reduce((s, v) => s + v, 0)
     })
 
-    const totalGastosFijos = (gastosFijos || []).reduce((s, g) => s + (g.monto_sin_igv || 0) + (g.igv || 0), 0)
+    // ── Gastos fijos (gastos_fijos table) ────────────────────
+    const totalGastosFijosTable = (gastosFijos || []).reduce((s, g) => s + (g.monto_sin_igv || 0) + (g.igv || 0), 0)
 
-    const planillaDirectaPorProyecto = {}
-    let totalPlanillaOverhead = 0
-    ;(planilla || []).forEach(p => {
-      if (p.scope_asignacion === "proyecto" && p.proyecto_id) {
-        planillaDirectaPorProyecto[p.proyecto_id] = (planillaDirectaPorProyecto[p.proyecto_id] || 0) + (p.costo_total_mes || 0)
-      } else {
-        totalPlanillaOverhead += (p.costo_total_mes || 0)
+    // ── Gastos operaciones por tipo_costo ────────────────────
+    // Variables directos/scope
+    const gastoVarDirecto = {}  // proyecto_id → amount
+    let gastoVarTodos = 0        // scope="todos" variable
+    const gastoVarOpProyectos = {} // scope="operaciones" variable: por proyecto_id (usa_operaciones)
+
+    ;(gastos || []).forEach(g => {
+      if (g.tipo_costo !== "variable") return
+      const scope = g.scope_asignacion || "proyecto"
+      if (scope === "proyecto" && g.proyecto_id) {
+        gastoVarDirecto[g.proyecto_id] = (gastoVarDirecto[g.proyecto_id] || 0) + (g.monto_real || 0)
+      } else if (scope === "todos") {
+        gastoVarTodos += (g.monto_real || 0)
+      } else if (scope === "operaciones") {
+        gastoVarOpProyectos.__total = (gastoVarOpProyectos.__total || 0) + (g.monto_real || 0)
       }
     })
 
+    // Totales facturados de proyectos con usa_operaciones
+    const totalFactOp = proyList
+      .filter(p => p.usa_operaciones)
+      .reduce((s, p) => s + (facturadoPorProyecto[p.id] || 0), 0)
+
+    // ── Planilla campo (personal_campo) ──────────────────────
+    const planillaCampoPorProyecto = {}
+    let totalPlanillaOficina = 0
+    let totalPlanillaOperaciones = 0
+
+    // Pre-compute for Roxana and JL
+    const roxanaFact = proyList.filter(p => p.interviene_roxana).reduce((s, p) => s + (facturadoPorProyecto[p.id] || 0), 0)
+    const jlProjects = proyList.filter(p => p.interviene_jl)
+    const nJL = jlProjects.length
+
+    // Planilla por grupo con reglas especiales
+    const planillaOperacionesPorProyecto = {}
+    const planillaOficinaPorProyecto = {}
+
+    ;(planilla || []).forEach(g => {
+      const costo = g.costo_total_mes || 0
+      const tipo = g.tipo
+      const scope = g.scope_asignacion
+      const persona = g.persona_especial
+
+      if (tipo === "personal_campo") {
+        if (scope === "proyecto" && g.proyecto_id) {
+          planillaCampoPorProyecto[g.proyecto_id] = (planillaCampoPorProyecto[g.proyecto_id] || 0) + costo
+        }
+        return
+      }
+
+      if (tipo === "admin_general" || tipo === "equipo_ejecutivo") {
+        totalPlanillaOficina += costo
+        return
+      }
+
+      // conductores y operaciones_almacen → Planilla Operaciones
+      totalPlanillaOperaciones += costo
+
+      if (!persona) {
+        // Sin regla especial: distribuir por % facturación a todos los proyectos
+        proyList.forEach(p => {
+          const pct = totalFacturado > 0 ? (facturadoPorProyecto[p.id] || 0) / totalFacturado : 0
+          planillaOperacionesPorProyecto[p.id] = (planillaOperacionesPorProyecto[p.id] || 0) + costo * pct
+        })
+        return
+      }
+
+      if (persona === "chris") {
+        proyList.forEach(p => {
+          const pct = totalFacturado > 0 ? (facturadoPorProyecto[p.id] || 0) / totalFacturado : 0
+          planillaOperacionesPorProyecto[p.id] = (planillaOperacionesPorProyecto[p.id] || 0) + costo * pct
+        })
+        return
+      }
+
+      if (persona === "vicente" || persona === "ayronn") {
+        const choferName = persona === "vicente" ? "Vicente" : "Ayronn"
+        const totalRutas = totalRutasPorChofer[choferName] || 0
+        const rutasMap = rutasPorChofer[choferName] || {}
+        if (totalRutas === 0) {
+          // fallback: billing %
+          proyList.forEach(p => {
+            const pct = totalFacturado > 0 ? (facturadoPorProyecto[p.id] || 0) / totalFacturado : 0
+            planillaOperacionesPorProyecto[p.id] = (planillaOperacionesPorProyecto[p.id] || 0) + costo * pct
+          })
+        } else {
+          proyList.forEach(p => {
+            const pctRutas = (rutasMap[p.id] || 0) / totalRutas
+            planillaOperacionesPorProyecto[p.id] = (planillaOperacionesPorProyecto[p.id] || 0) + costo * pctRutas
+          })
+        }
+        return
+      }
+
+      if (persona === "roxana") {
+        proyList.forEach(p => {
+          const pctAll = totalFacturado > 0 ? (facturadoPorProyecto[p.id] || 0) / totalFacturado : 0
+          const pctRox = (p.interviene_roxana && roxanaFact > 0) ? (facturadoPorProyecto[p.id] || 0) / roxanaFact : 0
+          planillaOperacionesPorProyecto[p.id] = (planillaOperacionesPorProyecto[p.id] || 0) + costo * 0.5 * pctRox + costo * 0.5 * pctAll
+        })
+        return
+      }
+
+      if (persona === "jl") {
+        if (nJL === 0) {
+          proyList.forEach(p => {
+            const pct = totalFacturado > 0 ? (facturadoPorProyecto[p.id] || 0) / totalFacturado : 0
+            planillaOperacionesPorProyecto[p.id] = (planillaOperacionesPorProyecto[p.id] || 0) + costo * pct
+          })
+        } else {
+          const pctJL = Math.min(1 / nJL, 1 / 3)
+          proyList.forEach(p => {
+            if (p.interviene_jl) {
+              planillaOperacionesPorProyecto[p.id] = (planillaOperacionesPorProyecto[p.id] || 0) + costo * pctJL
+            }
+          })
+        }
+        return
+      }
+    })
+
+    // Oficina se distribuye por billing %
+    proyList.forEach(p => {
+      const pct = totalFacturado > 0 ? (facturadoPorProyecto[p.id] || 0) / totalFacturado : 0
+      planillaOficinaPorProyecto[p.id] = totalPlanillaOficina * pct
+    })
+
     // ── Cálculo por proyecto ─────────────────────────────────
-    const filas = (proyectos || []).map(p => {
+    const filas = proyList.map(p => {
       const facturado = facturadoPorProyecto[p.id] || 0
       const pct = totalFacturado > 0 ? facturado / totalFacturado : 0
+      const pctOp = (p.usa_operaciones && totalFactOp > 0) ? facturado / totalFactOp : 0
 
-      const gastosOp         = gastoOpPorProyecto[p.id] || 0
-      const gastosFijosAsig  = totalGastosFijos * pct
-      const planillaDirecta  = planillaDirectaPorProyecto[p.id] || 0
-      const planillaOverhead = totalPlanillaOverhead * pct
+      const gVariables = (gastoVarDirecto[p.id] || 0)
+        + gastoVarTodos * pct
+        + (gastoVarOpProyectos.__total || 0) * pctOp
 
-      const totalCostos = gastosOp + gastosFijosAsig + planillaDirecta + planillaOverhead
+      const gFijos = totalGastosFijosTable * pct
+
+      const planillaCampo      = planillaCampoPorProyecto[p.id] || 0
+      const planillaOficina    = planillaOficinaPorProyecto[p.id] || 0
+      const planillaOperaciones = planillaOperacionesPorProyecto[p.id] || 0
+
+      const totalCostos = gVariables + gFijos + planillaCampo + planillaOficina + planillaOperaciones
       const margen      = facturado - totalCostos
       const pctMargen   = facturado > 0 ? margen / facturado : null
 
-      return { ...p, facturado, pct, gastosOp, gastosFijosAsig, planillaDirecta, planillaOverhead, totalCostos, margen, pctMargen }
+      return { ...p, facturado, pct, gVariables, gFijos, planillaCampo, planillaOficina, planillaOperaciones, totalCostos, margen, pctMargen }
     }).sort((a, b) => b.facturado - a.facturado)
 
     // ── Totales globales ─────────────────────────────────────
@@ -219,8 +355,11 @@ export default function ModuloDashboard() {
     const totalMargenGlobal    = totalFacturado - totalCostosGlobal
     const pctMargenGlobal      = totalFacturado > 0 ? totalMargenGlobal / totalFacturado : null
 
-    const totalGastosOp        = filas.reduce((s, f) => s + f.gastosOp, 0)
-    const totalPlanillaDirecta = filas.reduce((s, f) => s + f.planillaDirecta, 0)
+    const totGVar = filas.reduce((s, f) => s + f.gVariables, 0)
+    const totGFijos = filas.reduce((s, f) => s + f.gFijos, 0)
+    const totPlanillaCampo = filas.reduce((s, f) => s + f.planillaCampo, 0)
+    const totPlanillaOficina = filas.reduce((s, f) => s + f.planillaOficina, 0)
+    const totPlanillaOp = filas.reduce((s, f) => s + f.planillaOperaciones, 0)
 
     setDatos({
       filas,
@@ -228,10 +367,11 @@ export default function ModuloDashboard() {
       totalCostosGlobal,
       totalMargenGlobal,
       pctMargenGlobal,
-      totalGastosOp,
-      totalGastosFijos,
-      totalPlanillaDirecta,
-      totalPlanillaOverhead,
+      totGVar,
+      totGFijos: totalGastosFijosTable,
+      totPlanillaCampo,
+      totPlanillaOficina,
+      totPlanillaOp,
     })
     setLoading(false)
   }
@@ -280,10 +420,11 @@ export default function ModuloDashboard() {
             <div style={{ background: "var(--bg)", borderRadius: 14, padding: "20px 24px", border: "1px solid var(--border)", marginBottom: 24 }}>
               <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 16 }}>Desglose de costos del período</div>
               <BarraCostos
-                operaciones={datos.totalGastosOp}
-                gastosFijos={datos.totalGastosFijos}
-                planillaDirecta={datos.totalPlanillaDirecta}
-                planillaOverhead={datos.totalPlanillaOverhead}
+                gVariables={datos.totGVar}
+                gastosFijos={datos.totGFijos}
+                planillaCampo={datos.totPlanillaCampo}
+                planillaOficina={datos.totPlanillaOficina}
+                planillaOperaciones={datos.totPlanillaOp}
                 total={datos.totalCostosGlobal}
               />
             </div>
@@ -294,45 +435,39 @@ export default function ModuloDashboard() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                  {["Proyecto","Facturado","Operaciones","G. Fijos","Planilla","Total costos","Margen","% Margen"].map((h, i) => (
-                    <th key={i} style={{ padding: "12px 16px", textAlign: i === 0 ? "left" : "right", fontSize: 11, fontWeight: 700, color: "var(--muted)", letterSpacing: 0.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+                  {["Proyecto","Facturado","G. Variables","G. Fijos","P. Campo","P. Oficina","P. Operaciones","Total costos","Margen","% Margen"].map((h, i) => (
+                    <th key={i} style={{ padding: "12px 12px", textAlign: i === 0 ? "left" : "right", fontSize: 11, fontWeight: 700, color: "var(--muted)", letterSpacing: 0.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {datos.filas.length === 0 && (
-                  <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 14 }}>No hay proyectos activos</td></tr>
+                  <tr><td colSpan={10} style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 14 }}>No hay proyectos activos</td></tr>
                 )}
                 {datos.filas.map((f, i) => (
                   <tr key={f.id} style={{ borderBottom: "1px solid var(--border-light)", background: i % 2 === 0 ? "transparent" : "var(--bg-secondary)" }}>
-                    <td style={{ padding: "14px 16px" }}>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>{f.nombre}</div>
+                    <td style={{ padding: "12px 12px" }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{f.nombre}</div>
                       <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{f.cliente} · {f.ejecutivo}</div>
                     </td>
-                    <td style={{ padding: "14px 16px", textAlign: "right", fontSize: 13, fontWeight: 600 }}>
+                    <td style={{ padding: "12px 12px", textAlign: "right", fontSize: 13, fontWeight: 600 }}>
                       {fmt(f.facturado)}
                       {f.facturado === 0 && <div style={{ fontSize: 10, color: "var(--muted)" }}>sin facturas</div>}
                     </td>
-                    <Celda valor={f.gastosOp} />
-                    <Celda valor={f.gastosFijosAsig} esAsignado />
-                    <td style={{ padding: "14px 16px", textAlign: "right", fontSize: 13 }}>
-                      <div>{fmt(f.planillaDirecta + f.planillaOverhead)}</div>
-                      {(f.planillaDirecta > 0 || f.planillaOverhead > 0) && (
-                        <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 2 }}>
-                          {f.planillaDirecta > 0 && `dir: ${fmt(f.planillaDirecta)} `}
-                          {f.planillaOverhead > 0 && `ovh: ${fmt(f.planillaOverhead)}`}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: "14px 16px", textAlign: "right", fontSize: 13, fontWeight: 600, color: "#E24B4A" }}>
+                    <Celda valor={f.gVariables} />
+                    <Celda valor={f.gFijos} esAsignado />
+                    <Celda valor={f.planillaCampo} />
+                    <Celda valor={f.planillaOficina} esAsignado />
+                    <Celda valor={f.planillaOperaciones} esAsignado />
+                    <td style={{ padding: "12px 12px", textAlign: "right", fontSize: 13, fontWeight: 600, color: "#E24B4A" }}>
                       {fmt(f.totalCostos)}
                     </td>
-                    <td style={{ padding: "14px 16px", textAlign: "right", fontSize: 13, fontWeight: 700, color: margenColor(f.pctMargen) }}>
+                    <td style={{ padding: "12px 12px", textAlign: "right", fontSize: 13, fontWeight: 700, color: margenColor(f.pctMargen) }}>
                       {fmt(f.margen)}
                     </td>
-                    <td style={{ padding: "14px 16px", textAlign: "right" }}>
+                    <td style={{ padding: "12px 12px", textAlign: "right" }}>
                       {f.pctMargen !== null ? (
-                        <div style={{ display: "inline-block", padding: "4px 12px", borderRadius: 20, background: margenBg(f.pctMargen), color: margenColor(f.pctMargen), fontWeight: 700, fontSize: 13 }}>
+                        <div style={{ display: "inline-block", padding: "4px 10px", borderRadius: 20, background: margenBg(f.pctMargen), color: margenColor(f.pctMargen), fontWeight: 700, fontSize: 12 }}>
                           {fmtPct(f.pctMargen)}
                         </div>
                       ) : <span style={{ color: "var(--muted)", fontSize: 12 }}>—</span>}
@@ -343,16 +478,18 @@ export default function ModuloDashboard() {
               {datos.filas.length > 0 && (
                 <tfoot>
                   <tr style={{ borderTop: "2px solid var(--border)", background: "var(--bg-secondary)" }}>
-                    <td style={{ padding: "12px 16px", fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>Total</td>
-                    <td style={{ padding: "12px 16px", textAlign: "right", fontSize: 13, fontWeight: 800 }}>{fmt(datos.totalFacturado)}</td>
-                    <td style={{ padding: "12px 16px", textAlign: "right", fontSize: 13, fontWeight: 700 }}>{fmt(datos.totalGastosOp)}</td>
-                    <td style={{ padding: "12px 16px", textAlign: "right", fontSize: 13, fontWeight: 700 }}>{fmt(datos.totalGastosFijos)}</td>
-                    <td style={{ padding: "12px 16px", textAlign: "right", fontSize: 13, fontWeight: 700 }}>{fmt(datos.totalPlanillaDirecta + datos.totalPlanillaOverhead)}</td>
-                    <td style={{ padding: "12px 16px", textAlign: "right", fontSize: 13, fontWeight: 700, color: "#E24B4A" }}>{fmt(datos.totalCostosGlobal)}</td>
-                    <td style={{ padding: "12px 16px", textAlign: "right", fontSize: 14, fontWeight: 800, color: margenColor(datos.pctMargenGlobal) }}>{fmt(datos.totalMargenGlobal)}</td>
-                    <td style={{ padding: "12px 16px", textAlign: "right" }}>
+                    <td style={{ padding: "12px 12px", fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>Total</td>
+                    <td style={{ padding: "12px 12px", textAlign: "right", fontSize: 13, fontWeight: 800 }}>{fmt(datos.totalFacturado)}</td>
+                    <td style={{ padding: "12px 12px", textAlign: "right", fontSize: 13, fontWeight: 700 }}>{fmt(datos.totGVar)}</td>
+                    <td style={{ padding: "12px 12px", textAlign: "right", fontSize: 13, fontWeight: 700 }}>{fmt(datos.totGFijos)}</td>
+                    <td style={{ padding: "12px 12px", textAlign: "right", fontSize: 13, fontWeight: 700 }}>{fmt(datos.totPlanillaCampo)}</td>
+                    <td style={{ padding: "12px 12px", textAlign: "right", fontSize: 13, fontWeight: 700 }}>{fmt(datos.totPlanillaOficina)}</td>
+                    <td style={{ padding: "12px 12px", textAlign: "right", fontSize: 13, fontWeight: 700 }}>{fmt(datos.totPlanillaOp)}</td>
+                    <td style={{ padding: "12px 12px", textAlign: "right", fontSize: 13, fontWeight: 700, color: "#E24B4A" }}>{fmt(datos.totalCostosGlobal)}</td>
+                    <td style={{ padding: "12px 12px", textAlign: "right", fontSize: 14, fontWeight: 800, color: margenColor(datos.pctMargenGlobal) }}>{fmt(datos.totalMargenGlobal)}</td>
+                    <td style={{ padding: "12px 12px", textAlign: "right" }}>
                       {datos.pctMargenGlobal !== null && (
-                        <div style={{ display: "inline-block", padding: "4px 12px", borderRadius: 20, background: margenBg(datos.pctMargenGlobal), color: margenColor(datos.pctMargenGlobal), fontWeight: 800, fontSize: 14 }}>
+                        <div style={{ display: "inline-block", padding: "4px 10px", borderRadius: 20, background: margenBg(datos.pctMargenGlobal), color: margenColor(datos.pctMargenGlobal), fontWeight: 800, fontSize: 13 }}>
                           {fmtPct(datos.pctMargenGlobal)}
                         </div>
                       )}
@@ -366,7 +503,7 @@ export default function ModuloDashboard() {
           {/* Nota metodología */}
           {tab === "tabla" && (
             <div style={{ marginTop: 16, fontSize: 12, color: "var(--muted)", display: "flex", gap: 20, flexWrap: "wrap" }}>
-              <span>G. Fijos y Planilla overhead se distribuyen proporcionalmente según % de facturación de cada proyecto.</span>
+              <span>G. Fijos, P. Oficina y P. Operaciones se distribuyen proporcionalmente (o por regla especial para Roxana, JL, Vicente y Ayronn).</span>
               {datos.totalFacturado === 0 && <span style={{ color: "#BA7517", fontWeight: 600 }}>Sin facturación en el período — no hay distribución de overhead.</span>}
             </div>
           )}

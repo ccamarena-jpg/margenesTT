@@ -8,8 +8,9 @@ import { Spinner, Modal, Field, Input, Select, Btn } from "../components/ui"
 const CHOFERES = [
   { nombre: "Chris",   vehiculo: "Auto" },
   { nombre: "Vicente", vehiculo: "Camión" },
+  { nombre: "Ayronn",  vehiculo: "Moto" },
 ]
-const CHOFER_COLOR  = { Chris: "#185FA5", Vicente: "#BA7517" }
+const CHOFER_COLOR  = { Chris: "#185FA5", Vicente: "#BA7517", Ayronn: "#1D9E75" }
 const ESTADO_COLOR  = { programado: "#BA7517", completado: "#1D9E75", cancelado: "#E24B4A" }
 const ESTADO_LABEL  = { programado: "Programado", completado: "Completado", cancelado: "Cancelado" }
 const DIAS_SEMANA   = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
@@ -59,6 +60,7 @@ export default function ModuloFlota() {
     { id: "rutas",      label: "Rutas" },
     { id: "calendario", label: "Calendario" },
     { id: "resumen",    label: "Resumen Móviles" },
+    { id: "general",    label: "Vista General" },
   ]
 
   return (
@@ -99,6 +101,9 @@ export default function ModuloFlota() {
           )}
           {tab === "resumen" && (
             <TabResumen rutas={rutas} proyectos={proyectos} periodo={periodo} onPeriodo={setPeriodo} />
+          )}
+          {tab === "general" && (
+            <TabGeneral rutas={rutas} proyectos={proyectos} periodo={periodo} onPeriodo={setPeriodo} />
           )}
         </>
       )}
@@ -386,6 +391,117 @@ function TabResumen({ rutas, proyectos, periodo, onPeriodo }) {
                   <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: ESTADO_COLOR[r.estado] + "22", color: ESTADO_COLOR[r.estado] }}>
                     {ESTADO_LABEL[r.estado] || r.estado}
                   </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ── Tab Vista General ─────────────────────────────────────────
+function TabGeneral({ rutas, proyectos, periodo, onPeriodo }) {
+  const totalRutas = rutas.length
+
+  // Movimientos por cliente (agrupando proyectos del mismo cliente)
+  const porCliente = {}
+  rutas.forEach(r => {
+    const cliente = r.proyectos?.cliente || "Sin cliente"
+    if (!porCliente[cliente]) porCliente[cliente] = { count: 0, proyectos: new Set() }
+    porCliente[cliente].count++
+    if (r.proyectos?.nombre) porCliente[cliente].proyectos.add(r.proyectos.nombre)
+  })
+
+  const clientesSorted = Object.entries(porCliente)
+    .map(([cliente, data]) => ({ cliente, count: data.count, proyectos: [...data.proyectos], pct: totalRutas > 0 ? (data.count / totalRutas * 100) : 0 }))
+    .sort((a, b) => b.count - a.count)
+
+  // Movimientos por proyecto
+  const porProyecto = {}
+  rutas.forEach(r => {
+    const key = r.proyecto_id || "__sin__"
+    const nombre = r.proyectos?.nombre || "Sin proyecto"
+    const cliente = r.proyectos?.cliente || ""
+    if (!porProyecto[key]) porProyecto[key] = { nombre, cliente, count: 0 }
+    porProyecto[key].count++
+  })
+  const proyectosSorted = Object.values(porProyecto).sort((a, b) => b.count - a.count)
+
+  const COLORS = ["#185FA5", "#BA7517", "#0F6E56", "#534AB7", "#D85A30", "#1D9E75", "#E24B4A"]
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 20, alignItems: "center" }}>
+        <Input type="month" value={periodo} onChange={e => onPeriodo(e.target.value)} style={{ width: 160 }} />
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: 24 }}>
+        <div style={{ background: "var(--bg)", borderRadius: 14, padding: "20px 24px", border: "1px solid var(--border)" }}>
+          <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Total movimientos</div>
+          <div style={{ fontSize: 28, fontWeight: 700 }}>{totalRutas}</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>en el período</div>
+        </div>
+        <div style={{ background: "var(--bg)", borderRadius: 14, padding: "20px 24px", border: "1px solid var(--border)" }}>
+          <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>Clientes distintos</div>
+          <div style={{ fontSize: 28, fontWeight: 700 }}>{clientesSorted.length}</div>
+        </div>
+        <div style={{ background: "var(--bg)", borderRadius: 14, padding: "20px 24px", border: "1px solid var(--border)" }}>
+          <div style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>KM totales</div>
+          <div style={{ fontSize: 28, fontWeight: 700 }}>{rutas.reduce((s, r) => s + (r.km_recorridos || 0), 0).toFixed(0)} km</div>
+        </div>
+      </div>
+
+      {/* Por cliente */}
+      <div style={{ background: "var(--bg)", borderRadius: 14, border: "1px solid var(--border)", padding: "20px 24px", marginBottom: 24 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 16 }}>Movimientos por cliente</div>
+        {clientesSorted.length === 0
+          ? <div style={{ color: "var(--muted)", textAlign: "center", padding: 20 }}>Sin movimientos en el período</div>
+          : clientesSorted.map((c, i) => (
+          <div key={c.cliente} style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+              <div>
+                <span style={{ fontWeight: 600, fontSize: 14 }}>{c.cliente}</span>
+                <span style={{ fontSize: 11, color: "var(--muted)", marginLeft: 8 }}>{c.proyectos.join(", ")}</span>
+              </div>
+              <div style={{ display: "flex", gap: 12, fontSize: 13 }}>
+                <span style={{ fontWeight: 700 }}>{c.count} mov.</span>
+                <span style={{ fontWeight: 700, color: COLORS[i % COLORS.length] }}>{c.pct.toFixed(1)}%</span>
+              </div>
+            </div>
+            <div style={{ height: 12, background: "var(--bg-secondary)", borderRadius: 6, overflow: "hidden" }}>
+              <div style={{ width: `${c.pct.toFixed(1)}%`, height: "100%", background: COLORS[i % COLORS.length], borderRadius: 6, transition: "width 0.3s" }} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Por proyecto */}
+      <div style={{ background: "var(--bg)", borderRadius: 14, border: "1px solid var(--border)", overflow: "hidden" }}>
+        <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border)", fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Detalle por proyecto
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-secondary)" }}>
+              {["Proyecto","Cliente","Movimientos","% del total"].map((h, i) => (
+                <th key={i} style={{ padding: "10px 16px", textAlign: i >= 2 ? "right" : "left", fontSize: 10, fontWeight: 700, color: "var(--muted)", letterSpacing: 0.5, textTransform: "uppercase" }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {proyectosSorted.length === 0 && (
+              <tr><td colSpan={4} style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>Sin movimientos</td></tr>
+            )}
+            {proyectosSorted.map((p, i) => (
+              <tr key={i} style={{ borderBottom: "1px solid var(--border-light)", background: i % 2 === 0 ? "transparent" : "var(--bg-secondary)" }}>
+                <td style={{ padding: "12px 16px", fontWeight: 600, fontSize: 13 }}>{p.nombre}</td>
+                <td style={{ padding: "12px 16px", fontSize: 12, color: "var(--muted)" }}>{p.cliente}</td>
+                <td style={{ padding: "12px 16px", textAlign: "right", fontWeight: 700 }}>{p.count}</td>
+                <td style={{ padding: "12px 16px", textAlign: "right", fontSize: 13, fontWeight: 700, color: COLORS[i % COLORS.length] }}>
+                  {totalRutas > 0 ? (p.count / totalRutas * 100).toFixed(1) : 0}%
                 </td>
               </tr>
             ))}

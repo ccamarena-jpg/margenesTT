@@ -5,10 +5,11 @@ import { fmt, periodoActual } from "../lib/utils"
 import { Spinner, Modal, Field, Input, Select, Btn } from "../components/ui"
 
 const TIPO_GRUPO_LABEL = {
-  admin_general:      "Administrativo general",
-  equipo_ejecutivo:   "Equipo ejecutivo",
+  admin_general:       "Administrativo general",
+  equipo_ejecutivo:    "Equipo ejecutivo",
   operaciones_almacen: "Operaciones / Almacén",
-  conductores:        "Conductores",
+  conductores:         "Conductores",
+  personal_campo:      "Personal de campo",
 }
 
 const TIPO_GRUPO_COLOR = {
@@ -16,6 +17,15 @@ const TIPO_GRUPO_COLOR = {
   equipo_ejecutivo:    "#185FA5",
   operaciones_almacen: "#0F6E56",
   conductores:         "#BA7517",
+  personal_campo:      "#D85A30",
+}
+
+const PERSONA_ESPECIAL_LABEL = {
+  roxana:  "Roxana (supervisora)",
+  jl:      "José Mariños (supervisor)",
+  vicente: "Vicente (conductor)",
+  ayronn:  "Ayronn (conductor)",
+  chris:   "Chris (conductor)",
 }
 
 function BadgeGrupo({ tipo }) {
@@ -213,7 +223,11 @@ export default function ModuloPlanilla() {
                   <td style={{ padding: "14px 16px" }}><BadgeGrupo tipo={g.tipo} /></td>
                   <td style={{ padding: "14px 16px" }}>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{g.nombre_grupo}</div>
-                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{g.responsable}{g.ejecutivo_asignado ? ` · Ejecutivo: ${g.ejecutivo_asignado}` : ""}</div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
+                      {g.responsable}
+                      {g.ejecutivo_asignado ? ` · Ejecutivo: ${g.ejecutivo_asignado}` : ""}
+                      {g.persona_especial ? ` · ${PERSONA_ESPECIAL_LABEL[g.persona_especial] || g.persona_especial}` : ""}
+                    </div>
                   </td>
                   <td style={{ padding: "14px 16px" }}><BadgeScope scope={g.scope_asignacion} /></td>
                   <td style={{ padding: "14px 16px", fontSize: 13, color: "var(--muted)" }}>
@@ -266,6 +280,7 @@ function FormGrupo({ grupo, proyectos, onSave, onCancel }) {
     nombre_grupo:      grupo?.nombre_grupo || "",
     responsable:       grupo?.responsable || "",
     ejecutivo_asignado: grupo?.ejecutivo_asignado || "",
+    persona_especial:  grupo?.persona_especial || "",
     costo_total_mes:   grupo?.costo_total_mes || "",
     periodo:           grupo?.periodo || periodoActual(),
     scope_asignacion:  grupo?.scope_asignacion || "todos",
@@ -332,6 +347,22 @@ function FormGrupo({ grupo, proyectos, onSave, onCancel }) {
             </Select>
           </Field>
         )}
+        {(form.tipo === "operaciones_almacen" || form.tipo === "conductores") && (
+          <Field label="Persona (para regla de asignación)">
+            <Select value={form.persona_especial} onChange={e => set("persona_especial", e.target.value)}>
+              <option value="">Sin regla especial</option>
+              {form.tipo === "operaciones_almacen" && <>
+                <option value="roxana">Roxana (supervisora)</option>
+                <option value="jl">José Mariños (supervisor)</option>
+              </>}
+              {form.tipo === "conductores" && <>
+                <option value="vicente">Vicente (conductor)</option>
+                <option value="ayronn">Ayronn (conductor)</option>
+                <option value="chris">Chris (conductor)</option>
+              </>}
+            </Select>
+          </Field>
+        )}
         <Field label="Costo mensual (S/.)" required>
           <Input type="number" value={form.costo_total_mes} onChange={e => set("costo_total_mes", e.target.value)} placeholder="0.00" />
         </Field>
@@ -375,6 +406,13 @@ function FormGrupo({ grupo, proyectos, onSave, onCancel }) {
           <div style={{ gridColumn: "1/-1" }}>
             <div style={{ padding: "10px 14px", background: "#185FA511", border: "1px solid #185FA533", borderRadius: 8, fontSize: 13, color: "#185FA5" }}>
               Este costo se distribuirá entre todos los proyectos activos del período según su % de facturación sobre el total.
+            </div>
+          </div>
+        )}
+        {form.tipo === "personal_campo" && (
+          <div style={{ gridColumn: "1/-1" }}>
+            <div style={{ padding: "10px 14px", background: "#D85A3011", border: "1px solid #D85A3033", borderRadius: 8, fontSize: 13, color: "#D85A30" }}>
+              Personal de campo (RxH): monto mensual variable asignado directamente a un proyecto específico.
             </div>
           </div>
         )}

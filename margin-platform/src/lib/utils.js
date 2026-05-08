@@ -12,11 +12,13 @@ export const ROL_LABEL = {
 
 export const TIPO_GASTO_LABEL = {
   caja_chica: "Caja chica", reembolsable: "Reembolsable",
-  movilidad: "Movilidad", proyectado: "Proyectado"
+  movilidad: "Movilidad", proyectado: "Proyectado",
+  gasto_general: "Gasto general",
 }
 export const TIPO_GASTO_COLOR = {
   caja_chica: "#534AB7", reembolsable: "#185FA5",
-  movilidad: "#0F6E56", proyectado: "#BA7517"
+  movilidad: "#0F6E56", proyectado: "#BA7517",
+  gasto_general: "#D85A30",
 }
 export const ESTADO_GASTO_LABEL = {
   borrador: "Borrador",

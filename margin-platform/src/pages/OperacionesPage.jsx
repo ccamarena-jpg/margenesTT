@@ -5,6 +5,7 @@ import { fmt, today, periodoActual, TIPO_GASTO_LABEL, TIPO_GASTO_COLOR, ESTADO_G
 import { Spinner, Modal, Field, Input, Select, Btn, BadgeGasto } from "../components/ui"
 import ProveedorSearch, { guardarProveedor } from "../components/ProveedorSearch"
 import { generarReembolso, generarCajaChica, generarMovilidad } from "../lib/formatos"
+import * as XLSX from "xlsx"
 
 export default function ModuloOperaciones() {
   const { usuario } = useAuth()
@@ -16,6 +17,7 @@ export default function ModuloOperaciones() {
   const [gastoActivo, setGastoActivo] = useState(null)
   const [showLiquidarModal, setShowLiquidarModal] = useState(false)
   const [showFormatoModal, setShowFormatoModal] = useState(false)
+  const [showImportModal, setShowImportModal] = useState(false)
   const [filtros, setFiltros] = useState({ tipo: "", estado: "", proyecto: "", responsable: "", periodo: periodoActual() })
 
   const canAprobar  = ["admin", "gerencia"].includes(usuario?.rol)
@@ -57,6 +59,12 @@ export default function ModuloOperaciones() {
     fetchGastos()
   }
 
+  const handleDelete = async (id) => {
+    if (!window.confirm("¿Eliminar este gasto?")) return
+    await supabase.from("gastos").delete().eq("id", id)
+    fetchGastos()
+  }
+
   const exportCSV = () => {
     const rows = [["Tipo","Responsable","Proyecto","Descripción","Concepto","Monto Proyectado","Monto Real","RUC Proveedor","N° Comprobante","Fecha","Estado","Período"]]
     gastosFiltrados.forEach(g => rows.push([
@@ -82,6 +90,7 @@ export default function ModuloOperaciones() {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <Btn variant="secondary" onClick={() => setShowFormatoModal(true)}>↓ Descargar formato</Btn>
+          <Btn variant="secondary" onClick={() => setShowImportModal(true)}>↑ Importar Excel</Btn>
           <Btn variant="secondary" onClick={exportCSV}>↓ Exportar CSV</Btn>
           {esOperaciones && (
             <Btn onClick={() => setTipoSeleccionado("menu")}>+ Nuevo gasto</Btn>
@@ -91,12 +100,13 @@ export default function ModuloOperaciones() {
 
       {/* Selector de tipo */}
       {tipoSeleccionado === "menu" && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 24 }}>
           {[
-            { tipo: "caja_chica",   desc: "Con comprobante, fondo fijo" },
-            { tipo: "reembolsable", desc: "Con comprobante, pago personal" },
-            { tipo: "movilidad",    desc: "Sin comprobante, transporte" },
-            { tipo: "proyectado",   desc: "Gasto futuro por ejecutar" },
+            { tipo: "caja_chica",    desc: "Con comprobante, fondo fijo" },
+            { tipo: "reembolsable",  desc: "Con comprobante, pago personal" },
+            { tipo: "movilidad",     desc: "Sin comprobante, transporte" },
+            { tipo: "proyectado",    desc: "Gasto futuro por ejecutar" },
+            { tipo: "gasto_general", desc: "Gasto empresa con comprobante" },
           ].map(({ tipo, desc }) => (
             <div key={tipo} onClick={() => { setTipoSeleccionado(tipo); setGastoActivo(null); setShowModal(true) }}
               style={{ background: "var(--bg)", border: `2px solid ${TIPO_GASTO_COLOR[tipo]}44`, borderRadius: 14, padding: 20, cursor: "pointer", transition: "all 0.15s" }}
@@ -212,6 +222,9 @@ export default function ModuloOperaciones() {
                         {g.estado === "pendiente_reaprobacion" && (
                           <Btn variant="secondary" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => { setGastoActivo(g); setShowLiquidarModal(true) }}>Ver</Btn>
                         )}
+                        {["borrador", "rechazado"].includes(g.estado) && (
+                          <Btn variant="danger" style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => handleDelete(g.id)}>✕</Btn>
+                        )}
                       </div>
                     )}
                   </td>
@@ -237,6 +250,12 @@ export default function ModuloOperaciones() {
 
       <Modal open={showFormatoModal} onClose={() => setShowFormatoModal(false)} title="Descargar formato de rendición">
         <FormDescargarFormato onCancel={() => setShowFormatoModal(false)} proyectos={proyectos} />
+      </Modal>
+
+      <Modal open={showImportModal} onClose={() => setShowImportModal(false)} title="Importar gastos desde Excel">
+        <FormImportarExcel proyectos={proyectos} usuario={usuario}
+          onSave={() => { setShowImportModal(false); fetchGastos() }}
+          onCancel={() => setShowImportModal(false)} />
       </Modal>
     </div>
   )
@@ -264,6 +283,7 @@ function FormGasto({ tipo, gasto, proyectos, onSave, onCancel }) {
     destino: gasto?.destino || "",
     scope_asignacion: gasto?.scope_asignacion || "proyecto",
     periodo: gasto?.periodo || periodoActual(),
+    tipo_costo: gasto?.tipo_costo || "variable",
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -278,7 +298,7 @@ function FormGasto({ tipo, gasto, proyectos, onSave, onCancel }) {
   const handleSave = async () => {
     if (!form.descripcion || !form.responsable) { setError("Descripción y responsable son obligatorios"); return }
     if (tipo !== "movilidad" && tipo !== "proyectado" && !form.nro_comprobante) { setError("Número de comprobante requerido"); return }
-    if ((tipo === "caja_chica" || tipo === "reembolsable") && !form.monto_real && !form.base_imponible) { setError("Ingresa el monto"); return }
+    if ((tipo === "caja_chica" || tipo === "reembolsable" || tipo === "gasto_general") && !form.monto_real && !form.base_imponible) { setError("Ingresa el monto"); return }
     if (tipo === "movilidad" && !form.monto_real) { setError("Ingresa el monto"); return }
     if (tipo === "proyectado" && !form.monto_proyectado) { setError("Ingresa el monto proyectado"); return }
 
@@ -309,7 +329,7 @@ function FormGasto({ tipo, gasto, proyectos, onSave, onCancel }) {
     setLoading(false)
   }
 
-  const tieneComprobante = tipo === "caja_chica" || tipo === "reembolsable"
+  const tieneComprobante = tipo === "caja_chica" || tipo === "reembolsable" || tipo === "gasto_general"
 
   return (
     <div>
@@ -337,6 +357,12 @@ function FormGasto({ tipo, gasto, proyectos, onSave, onCancel }) {
             <option value="proyecto">Proyecto específico</option>
             <option value="operaciones">Todos los proyectos con operaciones</option>
             <option value="todos">Todos los proyectos</option>
+          </Select>
+        </Field>
+        <Field label="Tipo de costo">
+          <Select value={form.tipo_costo} onChange={e => set("tipo_costo", e.target.value)}>
+            <option value="variable">Variable</option>
+            <option value="fijo">Fijo</option>
           </Select>
         </Field>
         <Field label="Fecha del gasto">
@@ -670,6 +696,109 @@ function FormDescargarFormato({ onCancel, proyectos }) {
       <div style={{ gridColumn: "1/-1", display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
         <Btn variant="secondary" onClick={onCancel}>Cancelar</Btn>
         <Btn onClick={handleDescargar} disabled={loading}>{loading ? "Generando..." : "↓ Generar PDF"}</Btn>
+      </div>
+    </div>
+  )
+}
+
+// ── Importar Excel ───────────────────────────────────────────
+function FormImportarExcel({ proyectos, usuario, onSave, onCancel }) {
+  const [filas, setFilas]   = useState([])
+  const [error, setError]   = useState("")
+  const [loading, setLoading] = useState(false)
+
+  const COLUMNAS = ["tipo","responsable","proyecto","descripcion","concepto","fecha_gasto","monto","nro_comprobante","ruc_proveedor","razon_social_proveedor","periodo"]
+
+  const handleFile = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const wb = XLSX.read(ev.target.result, { type: "binary" })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        const data = XLSX.utils.sheet_to_json(ws, { defval: "" })
+        setFilas(data.slice(0, 200))
+        setError("")
+      } catch {
+        setError("No se pudo leer el archivo Excel")
+      }
+    }
+    reader.readAsBinaryString(file)
+  }
+
+  const descargarPlantilla = () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      COLUMNAS,
+      ["caja_chica","Roxana","Nombre del proyecto","Descripción del gasto","Concepto","2026-05-01","150.00","F001-00001","20123456789","Proveedor SAC","2026-05"],
+    ])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Gastos")
+    XLSX.writeFile(wb, "plantilla_gastos.xlsx")
+  }
+
+  const handleImportar = async () => {
+    if (filas.length === 0) { setError("No hay filas para importar"); return }
+    setLoading(true); setError("")
+    let importados = 0; let errores = []
+
+    for (const fila of filas) {
+      const tipo = (fila.tipo || "").toString().trim().toLowerCase()
+      const proyNombre = (fila.proyecto || "").toString().trim().toLowerCase()
+      const proyecto = proyectos.find(p => p.nombre.toLowerCase().includes(proyNombre))
+
+      const monto_real = parseFloat(fila.monto || 0) || null
+
+      const payload = {
+        tipo: tipo || "caja_chica",
+        responsable: (fila.responsable || "").toString().trim(),
+        descripcion: (fila.descripcion || "").toString().trim(),
+        concepto: (fila.concepto || "").toString().trim() || null,
+        fecha_gasto: (fila.fecha_gasto || "").toString().trim() || null,
+        monto_real,
+        nro_comprobante: (fila.nro_comprobante || "").toString().trim() || null,
+        ruc_proveedor: (fila.ruc_proveedor || "").toString().trim() || null,
+        razon_social_proveedor: (fila.razon_social_proveedor || "").toString().trim() || null,
+        periodo: (fila.periodo || "").toString().trim() || periodoActual(),
+        proyecto_id: proyecto?.id || null,
+        scope_asignacion: proyecto ? "proyecto" : "todos",
+        tipo_costo: "variable",
+        estado: "borrador",
+        cargado_por: usuario.id,
+      }
+
+      const { error: err } = await supabase.from("gastos").insert(payload)
+      if (err) errores.push(`Fila "${payload.descripcion}": ${err.message}`)
+      else importados++
+    }
+
+    setLoading(false)
+    if (errores.length > 0) setError(`${importados} importados. Errores:\n${errores.slice(0, 3).join("\n")}`)
+    else onSave()
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ padding: "12px 16px", background: "var(--bg-secondary)", borderRadius: 10, fontSize: 13 }}>
+        El Excel debe tener las columnas: <strong>tipo, responsable, proyecto, descripcion, concepto, fecha_gasto, monto, nro_comprobante, ruc_proveedor, razon_social_proveedor, periodo</strong>.
+        <br />Tipos válidos: caja_chica, reembolsable, movilidad, gasto_general.
+      </div>
+      <Btn variant="secondary" onClick={descargarPlantilla} style={{ alignSelf: "flex-start" }}>↓ Descargar plantilla</Btn>
+      <Field label="Seleccionar archivo Excel (.xlsx)">
+        <input type="file" accept=".xlsx,.xls" onChange={handleFile}
+          style={{ fontSize: 13, padding: "8px 0" }} />
+      </Field>
+      {filas.length > 0 && (
+        <div style={{ fontSize: 13, color: "#1D9E75", fontWeight: 600 }}>
+          ✓ {filas.length} fila{filas.length !== 1 ? "s" : ""} leída{filas.length !== 1 ? "s" : ""} — lista para importar
+        </div>
+      )}
+      {error && <div style={{ color: "#E24B4A", fontSize: 13, padding: "8px 12px", background: "#E24B4A11", borderRadius: 8, whiteSpace: "pre-line" }}>{error}</div>}
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <Btn variant="secondary" onClick={onCancel}>Cancelar</Btn>
+        <Btn onClick={handleImportar} disabled={loading || filas.length === 0}>
+          {loading ? "Importando..." : `Importar ${filas.length} registros`}
+        </Btn>
       </div>
     </div>
   )

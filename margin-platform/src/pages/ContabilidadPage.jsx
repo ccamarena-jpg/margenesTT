@@ -251,6 +251,7 @@ function FormGastoFijo({ gasto, onSave, onCancel }) {
     monto_sin_igv:          gasto?.monto_sin_igv || "",
     igv:                    gasto?.igv || "",
     periodo:                gasto?.periodo || periodoActual(),
+    tipo_costo:             gasto?.tipo_costo || "fijo",
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -297,6 +298,12 @@ function FormGastoFijo({ gasto, onSave, onCancel }) {
           <Select value={form.tipo} onChange={e => set("tipo", e.target.value)}>
             <option value="">Seleccionar</option>
             {Object.entries(TIPO_GASTO_FIJO_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </Select>
+        </Field>
+        <Field label="Tipo de costo">
+          <Select value={form.tipo_costo} onChange={e => set("tipo_costo", e.target.value)}>
+            <option value="fijo">Fijo</option>
+            <option value="variable">Variable</option>
           </Select>
         </Field>
         <Field label="Período" required>

@@ -40,7 +40,7 @@ export default function ModuloProyectos() {
   const fetchDatos = async () => {
     setLoading(true)
     const [{ data: proy }, { data: facts }] = await Promise.all([
-      supabase.from("proyectos").select("id, nombre, cliente, ejecutivo, tipo_servicio, responsable_pago, estado").order("created_at", { ascending: false }),
+      supabase.from("proyectos").select("id, nombre, cliente, ejecutivo, tipo_servicio, responsable_pago, estado, usa_operaciones, interviene_roxana, interviene_jl").order("created_at", { ascending: false }),
       supabase.from("facturas_proyecto").select("*").order("fecha_factura", { ascending: false }),
     ])
 
@@ -270,12 +270,15 @@ function FormRegistro({ registro, proyectos, onSave, onCancel }) {
   const proy = registro?.proyecto || {}
 
   const [formP, setFormP] = useState({
-    nombre:           proy.nombre || "",
-    cliente:          proy.cliente || "",
-    ejecutivo:        proy.ejecutivo || "",
-    tipo_servicio:    proy.tipo_servicio || "",
-    responsable_pago: proy.responsable_pago || "",
-    monto_contratado: proy.monto_contratado || "",
+    nombre:             proy.nombre || "",
+    cliente:            proy.cliente || "",
+    ejecutivo:          proy.ejecutivo || "",
+    tipo_servicio:      proy.tipo_servicio || "",
+    responsable_pago:   proy.responsable_pago || "",
+    monto_contratado:   proy.monto_contratado || "",
+    usa_operaciones:    proy.usa_operaciones || false,
+    interviene_roxana:  proy.interviene_roxana || false,
+    interviene_jl:      proy.interviene_jl || false,
   })
 
   const [formF, setFormF] = useState({
@@ -305,7 +308,7 @@ function FormRegistro({ registro, proyectos, onSave, onCancel }) {
   const handleSelectProyecto = (id) => {
     setProyectoId(id)
     const p = proyectos.find(p => p.id === id)
-    if (p) setFormP({ nombre: p.nombre, cliente: p.cliente, ejecutivo: p.ejecutivo, tipo_servicio: p.tipo_servicio || "", responsable_pago: p.responsable_pago || "" })
+    if (p) setFormP({ nombre: p.nombre, cliente: p.cliente, ejecutivo: p.ejecutivo, tipo_servicio: p.tipo_servicio || "", responsable_pago: p.responsable_pago || "", monto_contratado: p.monto_contratado || "", usa_operaciones: p.usa_operaciones || false, interviene_roxana: p.interviene_roxana || false, interviene_jl: p.interviene_jl || false })
   }
 
   const handleSave = async () => {
@@ -321,6 +324,7 @@ function FormRegistro({ registro, proyectos, onSave, onCancel }) {
         nombre: formP.nombre, cliente: formP.cliente, ejecutivo: formP.ejecutivo,
         tipo_servicio: formP.tipo_servicio, responsable_pago: formP.responsable_pago,
         monto_contratado: formP.monto_contratado ? parseFloat(formP.monto_contratado) : 0,
+        usa_operaciones: formP.usa_operaciones, interviene_roxana: formP.interviene_roxana, interviene_jl: formP.interviene_jl,
       }).eq("id", registro.proyecto_id)
 
       const { error } = await supabase.from("facturas_proyecto").update({
@@ -335,6 +339,7 @@ function FormRegistro({ registro, proyectos, onSave, onCancel }) {
           nombre: formP.nombre, cliente: formP.cliente, ejecutivo: formP.ejecutivo,
           tipo_servicio: formP.tipo_servicio, responsable_pago: formP.responsable_pago,
           monto_contratado: formP.monto_contratado ? parseFloat(formP.monto_contratado) : 0,
+          usa_operaciones: formP.usa_operaciones, interviene_roxana: formP.interviene_roxana, interviene_jl: formP.interviene_jl,
           estado: "activo", creado_por: usuario.id,
         }).select("id").single()
         if (errP) { setError(errP.message); setLoading(false); return }
@@ -401,6 +406,18 @@ function FormRegistro({ registro, proyectos, onSave, onCancel }) {
           <Field label="Presupuesto contratado (S/.)">
             <Input type="number" value={formP.monto_contratado} onChange={e => setP("monto_contratado", e.target.value)} placeholder="0.00" />
           </Field>
+          <div style={{ gridColumn: "1/-1", display: "flex", gap: 20, padding: "12px 14px", background: "var(--bg-secondary)", borderRadius: 10 }}>
+            {[
+              { key: "usa_operaciones",   label: "Operaciones intervino" },
+              { key: "interviene_roxana", label: "Roxana supervisó" },
+              { key: "interviene_jl",     label: "José Mariños supervisó" },
+            ].map(({ key, label }) => (
+              <label key={key} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13 }}>
+                <input type="checkbox" checked={!!formP[key]} onChange={e => setP(key, e.target.checked)} style={{ width: 16, height: 16 }} />
+                {label}
+              </label>
+            ))}
+          </div>
           <div style={{ gridColumn: "1/-1" }}>
             <Field label="Proyecto" required>
               <Input value={formP.nombre} onChange={e => setP("nombre", e.target.value)} placeholder="Nombre del proyecto" readOnly={modoProyecto === "existente" && !registro?.id} />

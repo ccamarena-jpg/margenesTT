@@ -7,7 +7,7 @@ const NAV_SECTIONS = [
       { id: "proyectos",    label: "Proyectos",          icon: "◈", roles: ["admin","gerencia","operaciones","contabilidad","rrhh"] },
       { id: "operaciones",  label: "Registro de Gastos", icon: "◎", roles: ["admin","gerencia","operaciones"] },
       { id: "aprobaciones", label: "Aprobaciones",       icon: "◉", roles: ["admin","gerencia"] },
-      { id: "contabilidad", label: "Contabilidad",       icon: "◇", roles: ["admin","gerencia","contabilidad"] },
+      { id: "contabilidad", label: "Reg. Gastos Fijos",   icon: "◇", roles: ["admin","gerencia","contabilidad"] },
       { id: "planilla",     label: "Planilla",           icon: "◈", roles: ["admin","gerencia","rrhh"] },
       { id: "dashboard",    label: "Dashboard",          icon: "▣", roles: ["admin","gerencia"] },
       { id: "historico",    label: "Histórico",          icon: "◫", roles: ["admin","gerencia"] },

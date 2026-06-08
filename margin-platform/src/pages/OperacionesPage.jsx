@@ -19,6 +19,7 @@ export default function ModuloOperaciones() {
   const [showFormatoModal, setShowFormatoModal] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const [filtros, setFiltros] = useState({ tipo: "", estado: "", proyecto: "", responsable: "", periodo: periodoActual() })
+  const [tab, setTab] = useState("gastos")
 
   const canAprobar  = ["admin", "gerencia"].includes(usuario?.rol)
   const esOperaciones = ["operaciones", "admin", "gerencia"].includes(usuario?.rol)
@@ -79,6 +80,17 @@ export default function ModuloOperaciones() {
 
   return (
     <div>
+      {/* ── Tabs ─────────────────────────────────────────────── */}
+      <div style={{ display: "flex", borderBottom: "2px solid var(--border)", marginBottom: 28 }}>
+        {[["gastos", "Registro de Gastos"], ["caja_chica", "Caja Chica"]].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            style={{ padding: "10px 20px", background: "none", border: "none", borderBottom: tab === id ? "2px solid #534AB7" : "2px solid transparent", color: tab === id ? "#534AB7" : "var(--muted)", fontWeight: tab === id ? 700 : 400, fontSize: 14, cursor: "pointer", marginBottom: -2, transition: "all 0.15s" }}
+          >{label}</button>
+        ))}
+      </div>
+
+      {tab === "caja_chica" ? <TabCajaChica usuario={usuario} canAdmin={canAprobar} /> : <div>
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 28 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>Registro de Gastos</h1>
@@ -257,6 +269,7 @@ export default function ModuloOperaciones() {
           onSave={() => { setShowImportModal(false); fetchGastos() }}
           onCancel={() => setShowImportModal(false)} />
       </Modal>
+      </div>}{/* end tab gastos */}
     </div>
   )
 }
@@ -793,6 +806,7 @@ function FormImportarExcel({ proyectos, usuario, onSave, onCancel }) {
         El Excel debe tener las columnas: <strong>tipo, responsable, proyecto, descripcion, concepto, fecha_gasto, monto, nro_comprobante, ruc_proveedor, razon_social_proveedor, periodo</strong>.
         <br />Tipos válidos: caja_chica, reembolsable, movilidad, gasto_general.
       </div>
+
       <Btn variant="secondary" onClick={descargarPlantilla} style={{ alignSelf: "flex-start" }}>↓ Descargar plantilla</Btn>
       <Field label="Seleccionar archivo Excel (.xlsx)">
         <input type="file" accept=".xlsx,.xls" onChange={handleFile}
@@ -810,6 +824,586 @@ function FormImportarExcel({ proyectos, usuario, onSave, onCancel }) {
           {loading ? "Importando..." : `Importar ${filas.length} registros`}
         </Btn>
       </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CAJA CHICA
+// ══════════════════════════════════════════════════════════════
+
+const ESTADO_CAJA = {
+  abierta:     { label: "Abierta",     color: "#1D9E75" },
+  en_revision: { label: "En revisión", color: "#BA7517" },
+  liquidada:   { label: "Liquidada",   color: "#185FA5" },
+  observada:   { label: "Observada",   color: "#D85A30" },
+  cerrada:     { label: "Cerrada",     color: "#888780" },
+}
+
+const ESTADO_GASTO_CC = {
+  pendiente: { label: "Pendiente", color: "#BA7517" },
+  aprobado:  { label: "Aprobado",  color: "#1D9E75" },
+  observado: { label: "Observado", color: "#D85A30" },
+  rechazado: { label: "Rechazado", color: "#E24B4A" },
+}
+
+const CATEGORIAS_CC = [
+  { value: "movilidad",       label: "Movilidad" },
+  { value: "alimentacion",    label: "Alimentación" },
+  { value: "utiles",          label: "Útiles de oficina" },
+  { value: "servicios",       label: "Servicios" },
+  { value: "representacion",  label: "Representación" },
+  { value: "comunicacion",    label: "Comunicación" },
+  { value: "otros",           label: "Otros" },
+]
+
+const COMPROBANTES_CC = [
+  { value: "boleta",           label: "Boleta" },
+  { value: "factura",          label: "Factura" },
+  { value: "recibo",           label: "RxH (Honorarios)" },
+  { value: "ticket",           label: "Ticket" },
+  { value: "sin_comprobante",  label: "Sin comprobante" },
+]
+
+// ── Tab principal Caja Chica ─────────────────────────────────
+function TabCajaChica({ usuario, canAdmin }) {
+  const [vista, setVista]         = useState("lista")  // "lista" | "detalle" | "fondos"
+  const [cajaActiva, setCajaActiva] = useState(null)
+  const [cajas, setCajas]         = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [filtroPeriodo, setFiltroPeriodo] = useState(periodoActual())
+  const [showNueva, setShowNueva] = useState(false)
+
+  useEffect(() => { fetchCajas() }, [filtroPeriodo])
+
+  const fetchCajas = async () => {
+    setLoading(true)
+    let q = supabase.from("cajas_chicas").select("*").order("created_at", { ascending: false })
+    if (!canAdmin) q = q.eq("usuario_id", usuario.id)
+    if (filtroPeriodo) q = q.eq("periodo", filtroPeriodo)
+    const { data } = await q
+    setCajas(data || [])
+    setLoading(false)
+  }
+
+  if (vista === "detalle" && cajaActiva) {
+    return <DetalleCaja caja={cajaActiva} canAdmin={canAdmin} usuario={usuario}
+      onBack={() => { setVista("lista"); setCajaActiva(null); fetchCajas() }} />
+  }
+  if (vista === "fondos") {
+    return <PanelFondos onBack={() => setVista("lista")} />
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Caja Chica</h2>
+          <p style={{ margin: "4px 0 0", color: "var(--muted)", fontSize: 14 }}>Liquidaciones de fondo fijo por usuario</p>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input type="month" value={filtroPeriodo} onChange={e => setFiltroPeriodo(e.target.value)}
+            style={{ padding: "8px 12px", border: "1px solid var(--border)", borderRadius: 8, fontSize: 13, background: "var(--bg)", color: "var(--text)" }} />
+          {canAdmin && <Btn variant="secondary" onClick={() => setVista("fondos")}>⚙ Fondos por usuario</Btn>}
+          <Btn onClick={() => setShowNueva(true)}>+ Nueva caja chica</Btn>
+        </div>
+      </div>
+
+      {loading ? <Spinner /> : cajas.length === 0 ? (
+        <div style={{ background: "var(--bg)", borderRadius: 14, border: "1px solid var(--border)", padding: 60, textAlign: "center" }}>
+          <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 16 }}>No hay cajas chicas para este período</div>
+          <Btn onClick={() => setShowNueva(true)}>+ Crear caja chica</Btn>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+          {cajas.map(caja => {
+            const ec = ESTADO_CAJA[caja.estado] || ESTADO_CAJA.abierta
+            const saldo = (caja.fondo_asignado || 0) - (caja.total_gastos_aprobados || 0) - (caja.efectivo_devuelto || 0)
+            return (
+              <div key={caja.id} onClick={() => { setCajaActiva(caja); setVista("detalle") }}
+                style={{ background: "var(--bg)", borderRadius: 14, border: `1.5px solid ${ec.color}33`, padding: 20, cursor: "pointer", transition: "all 0.15s" }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = ec.color}
+                onMouseLeave={e => e.currentTarget.style.borderColor = ec.color + "33"}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>{caja.usuario_nombre}</div>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: ec.color + "22", color: ec.color }}>{ec.label}</span>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 14 }}>{caja.periodo}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>Fondo</div>
+                    <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(caja.fondo_asignado)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 }}>Diferencia</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: saldo < -0.01 ? "#E24B4A" : saldo > 0.01 ? "#BA7517" : "#1D9E75" }}>{fmt(saldo)}</div>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <Modal open={showNueva} onClose={() => setShowNueva(false)} title="Nueva Caja Chica">
+        <FormNuevaCaja usuario={usuario} canAdmin={canAdmin}
+          onSave={() => { setShowNueva(false); fetchCajas() }}
+          onCancel={() => setShowNueva(false)} />
+      </Modal>
+    </div>
+  )
+}
+
+// ── Formulario nueva caja ────────────────────────────────────
+function FormNuevaCaja({ usuario, canAdmin, onSave, onCancel }) {
+  const [form, setForm] = useState({
+    periodo: periodoActual(),
+    usuario_id: usuario.id,
+    usuario_nombre: usuario.nombre,
+    fondo_asignado: "",
+  })
+  const [usuarios, setUsuarios] = useState([])
+  const [loading, setLoading]   = useState(false)
+  const [error, setError]       = useState("")
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  useEffect(() => {
+    if (canAdmin) {
+      supabase.from("usuarios").select("id, nombre, rol").then(({ data }) => setUsuarios(data || []))
+    }
+    loadFondo(usuario.id)
+  }, [])
+
+  const loadFondo = async (uid) => {
+    const { data } = await supabase.from("usuarios_fondo").select("fondo_asignado").eq("usuario_id", uid).maybeSingle()
+    if (data?.fondo_asignado) set("fondo_asignado", data.fondo_asignado)
+  }
+
+  const handleUsuario = async (uid) => {
+    const u = usuarios.find(u => u.id === uid)
+    set("usuario_id", uid); set("usuario_nombre", u?.nombre || "")
+    loadFondo(uid)
+  }
+
+  const handleSave = async () => {
+    if (!form.fondo_asignado) { setError("Ingresa el fondo asignado"); return }
+    setLoading(true); setError("")
+    const { data: ex } = await supabase.from("cajas_chicas").select("id")
+      .eq("usuario_id", form.usuario_id).eq("periodo", form.periodo).maybeSingle()
+    if (ex) { setError("Ya existe una caja chica para este usuario y período"); setLoading(false); return }
+    const { error: err } = await supabase.from("cajas_chicas").insert({
+      usuario_id: form.usuario_id, usuario_nombre: form.usuario_nombre,
+      periodo: form.periodo, fondo_asignado: parseFloat(form.fondo_asignado),
+      efectivo_devuelto: 0, estado: "abierta",
+    })
+    if (err) setError(err.message)
+    else onSave()
+    setLoading(false)
+  }
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      {canAdmin && usuarios.length > 0 && (
+        <div style={{ gridColumn: "1/-1" }}>
+          <Field label="Usuario">
+            <Select value={form.usuario_id} onChange={e => handleUsuario(e.target.value)}>
+              {usuarios.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+            </Select>
+          </Field>
+        </div>
+      )}
+      <Field label="Período">
+        <Input type="month" value={form.periodo} onChange={e => set("periodo", e.target.value)} />
+      </Field>
+      <Field label="Fondo asignado (S/.)">
+        <Input type="number" value={form.fondo_asignado} onChange={e => set("fondo_asignado", e.target.value)} placeholder="0.00" />
+      </Field>
+      {error && <div style={{ gridColumn: "1/-1", color: "#E24B4A", fontSize: 13, padding: "8px 12px", background: "#E24B4A11", borderRadius: 8 }}>{error}</div>}
+      <div style={{ gridColumn: "1/-1", display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <Btn variant="secondary" onClick={onCancel}>Cancelar</Btn>
+        <Btn onClick={handleSave} disabled={loading}>{loading ? "Creando..." : "Crear caja chica"}</Btn>
+      </div>
+    </div>
+  )
+}
+
+// ── Detalle de una caja ──────────────────────────────────────
+function DetalleCaja({ caja, canAdmin, usuario, onBack }) {
+  const [gastos, setGastos]         = useState([])
+  const [loadingG, setLoadingG]     = useState(true)
+  const [cajaData, setCajaData]     = useState(caja)
+  const [showForm, setShowForm]     = useState(false)
+  const [efectivoInput, setEfectivoInput] = useState((caja.efectivo_devuelto || "").toString())
+  const [obs, setObs]               = useState("")
+  const [showObsModal, setShowObsModal] = useState(null) // null | "caja" | gastoId
+  const [savingEfectivo, setSavingEfectivo] = useState(false)
+
+  useEffect(() => { fetchGastos() }, [])
+
+  const fetchGastos = async () => {
+    setLoadingG(true)
+    const { data } = await supabase.from("cajas_chicas_gastos").select("*")
+      .eq("caja_chica_id", caja.id).order("fecha", { ascending: true })
+    setGastos(data || [])
+    setLoadingG(false)
+  }
+
+  const refreshCaja = async () => {
+    const { data } = await supabase.from("cajas_chicas").select("*").eq("id", caja.id).single()
+    if (data) setCajaData(data)
+  }
+
+  const totalGastos      = gastos.reduce((s, g) => s + (g.monto || 0), 0)
+  const gastosSustentados = gastos.filter(g => g.estado === "aprobado").reduce((s, g) => s + (g.monto || 0), 0)
+  const efectivoDevuelto = cajaData.efectivo_devuelto || 0
+  const diferencia       = (cajaData.fondo_asignado || 0) - gastosSustentados - efectivoDevuelto
+
+  const canEdit   = cajaData.estado === "abierta" && (canAdmin || cajaData.usuario_id === usuario.id)
+  const esPropio  = cajaData.usuario_id === usuario.id
+  const ec        = ESTADO_CAJA[cajaData.estado] || ESTADO_CAJA.abierta
+
+  const cambiarEstadoCaja = async (nuevoEstado, observacion) => {
+    await supabase.from("cajas_chicas").update({ estado: nuevoEstado, observacion: observacion || null }).eq("id", caja.id)
+    refreshCaja()
+  }
+
+  const cambiarEstadoGasto = async (gastoId, nuevoEstado, observacion) => {
+    await supabase.from("cajas_chicas_gastos").update({ estado: nuevoEstado, observacion: observacion || null }).eq("id", gastoId)
+    fetchGastos()
+    // recalculate total approved
+    setTimeout(refreshCaja, 300)
+  }
+
+  const guardarEfectivo = async () => {
+    setSavingEfectivo(true)
+    await supabase.from("cajas_chicas").update({ efectivo_devuelto: parseFloat(efectivoInput || 0) }).eq("id", caja.id)
+    refreshCaja()
+    setSavingEfectivo(false)
+  }
+
+  const eliminarGasto = async (id) => {
+    if (!window.confirm("¿Eliminar este gasto?")) return
+    await supabase.from("cajas_chicas_gastos").delete().eq("id", id)
+    fetchGastos()
+  }
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <button onClick={onBack} style={{ background: "none", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13, color: "var(--text)" }}>← Volver</button>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Liquidación de Caja Chica</h2>
+            <p style={{ margin: "2px 0 0", color: "var(--muted)", fontSize: 13 }}>{cajaData.usuario_nombre} · {cajaData.periodo}</p>
+          </div>
+          <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 6, background: ec.color + "22", color: ec.color }}>{ec.label}</span>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {cajaData.estado === "abierta" && esPropio && (
+            <Btn onClick={() => cambiarEstadoCaja("en_revision")} style={{ fontSize: 13 }}>→ Enviar a revisión</Btn>
+          )}
+          {canAdmin && cajaData.estado === "en_revision" && (
+            <>
+              <Btn variant="secondary" onClick={() => { setObs(""); setShowObsModal("caja") }} style={{ fontSize: 13 }}>Observar caja</Btn>
+              <Btn onClick={() => cambiarEstadoCaja("liquidada")} style={{ fontSize: 13 }}>✓ Liquidar</Btn>
+            </>
+          )}
+          {canAdmin && cajaData.estado === "observada" && (
+            <Btn variant="secondary" onClick={() => cambiarEstadoCaja("abierta")} style={{ fontSize: 13 }}>Reabrir</Btn>
+          )}
+          {canAdmin && cajaData.estado === "liquidada" && (
+            <Btn variant="secondary" onClick={() => cambiarEstadoCaja("cerrada")} style={{ fontSize: 13 }}>Cerrar</Btn>
+          )}
+        </div>
+      </div>
+
+      {/* Observación */}
+      {cajaData.observacion && (
+        <div style={{ background: "#D85A3011", border: "1px solid #D85A3033", borderRadius: 10, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#D85A30" }}>
+          <strong>Observación:</strong> {cajaData.observacion}
+        </div>
+      )}
+
+      {/* Resumen */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
+        {[
+          { label: "Fondo asignado",     value: fmt(cajaData.fondo_asignado), color: "var(--text)" },
+          { label: "Gastos registrados", value: fmt(totalGastos),             color: "var(--text)" },
+          { label: "Gastos sustentados", value: fmt(gastosSustentados),       color: "#185FA5" },
+          { label: "Diferencia",         value: fmt(diferencia),              color: diferencia < -0.01 ? "#E24B4A" : diferencia > 0.01 ? "#BA7517" : "#1D9E75" },
+        ].map((k, i) => (
+          <div key={i} style={{ background: "var(--bg)", borderRadius: 12, padding: "16px 18px", border: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 10, color: "var(--muted)", fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 6 }}>{k.label}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: k.color }}>{k.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Efectivo devuelto */}
+      <div style={{ background: "var(--bg)", borderRadius: 12, border: "1px solid var(--border)", padding: "14px 18px", marginBottom: 20, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>Efectivo declarado (S/.)</div>
+        <Input type="number" value={efectivoInput} onChange={e => setEfectivoInput(e.target.value)}
+          placeholder="0.00" style={{ width: 130 }} readOnly={!canEdit} />
+        {canEdit && (
+          <Btn variant="secondary" onClick={guardarEfectivo} disabled={savingEfectivo} style={{ fontSize: 12, padding: "6px 14px" }}>
+            {savingEfectivo ? "..." : "Guardar"}
+          </Btn>
+        )}
+        <div style={{ marginLeft: "auto", fontSize: 12, color: "var(--muted)" }}>
+          Diferencia = Fondo − Sustentados − Devuelto = <strong style={{ color: diferencia < -0.01 ? "#E24B4A" : diferencia > 0.01 ? "#BA7517" : "#1D9E75" }}>{fmt(diferencia)}</strong>
+        </div>
+      </div>
+
+      {/* Formulario agregar gasto */}
+      {canEdit && (
+        <div style={{ background: "var(--bg)", borderRadius: 12, border: "1px solid var(--border)", marginBottom: 20 }}>
+          <div onClick={() => setShowForm(!showForm)}
+            style={{ padding: "14px 18px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", fontWeight: 600, fontSize: 15, userSelect: "none" }}>
+            <span>Registrar gasto</span>
+            <span style={{ fontSize: 20, color: "var(--muted)", transform: showForm ? "rotate(45deg)" : "none", transition: "transform 0.15s", display: "inline-block" }}>+</span>
+          </div>
+          {showForm && (
+            <div style={{ padding: "0 18px 18px", borderTop: "1px solid var(--border)" }}>
+              <div style={{ paddingTop: 16 }}>
+                <FormGastoCaja cajaId={caja.id}
+                  onSave={() => { fetchGastos(); setShowForm(false); refreshCaja() }}
+                  onCancel={() => setShowForm(false)} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tabla de gastos */}
+      {loadingG ? <Spinner /> : (
+        <div style={{ background: "var(--bg)", borderRadius: 12, border: "1px solid var(--border)", overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                {["Fecha","Proveedor","Concepto","Categoría","Comprobante","Monto","Estado",""].map((h, i) => (
+                  <th key={i} style={{ padding: "11px 14px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "var(--muted)", letterSpacing: 0.5, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {gastos.length === 0 && (
+                <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: "var(--muted)", fontSize: 14 }}>Sin gastos registrados aún</td></tr>
+              )}
+              {gastos.map((g, i) => {
+                const eg = ESTADO_GASTO_CC[g.estado] || ESTADO_GASTO_CC.pendiente
+                return (
+                  <tr key={g.id} style={{ borderBottom: "1px solid var(--border-light)", background: i % 2 === 0 ? "transparent" : "var(--bg-secondary)" }}>
+                    <td style={{ padding: "11px 14px", fontSize: 13 }}>{g.fecha || "—"}</td>
+                    <td style={{ padding: "11px 14px", fontSize: 13 }}>{g.proveedor || "—"}</td>
+                    <td style={{ padding: "11px 14px", fontSize: 13 }}>{g.concepto}</td>
+                    <td style={{ padding: "11px 14px", fontSize: 12, color: "var(--muted)" }}>
+                      {CATEGORIAS_CC.find(c => c.value === g.categoria)?.label || g.categoria || "—"}
+                    </td>
+                    <td style={{ padding: "11px 14px", fontSize: 12 }}>
+                      <div style={{ fontWeight: 600, textTransform: "uppercase", fontSize: 11 }}>{g.tipo_comprobante}</div>
+                      {g.nro_comprobante && <div style={{ color: "var(--muted)" }}>{g.nro_comprobante}</div>}
+                    </td>
+                    <td style={{ padding: "11px 14px", fontSize: 14, fontWeight: 700 }}>{fmt(g.monto)}</td>
+                    <td style={{ padding: "11px 14px" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6, background: eg.color + "22", color: eg.color }}>{eg.label}</span>
+                      {g.observacion && <div style={{ fontSize: 10, color: eg.color, marginTop: 2 }}>{g.observacion}</div>}
+                    </td>
+                    <td style={{ padding: "11px 14px" }}>
+                      {canAdmin && g.estado === "pendiente" && (
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <Btn onClick={() => cambiarEstadoGasto(g.id, "aprobado")} style={{ padding: "3px 9px", fontSize: 11, background: "#1D9E75", border: "none", color: "#fff", borderRadius: 6, cursor: "pointer" }}>✓</Btn>
+                          <Btn variant="secondary" onClick={() => { setObs(""); setShowObsModal(g.id) }} style={{ padding: "3px 9px", fontSize: 11 }}>Obs.</Btn>
+                          <Btn variant="danger" onClick={() => cambiarEstadoGasto(g.id, "rechazado")} style={{ padding: "3px 9px", fontSize: 11 }}>✕</Btn>
+                        </div>
+                      )}
+                      {canEdit && g.estado === "pendiente" && !canAdmin && (
+                        <Btn variant="danger" onClick={() => eliminarGasto(g.id)} style={{ padding: "3px 9px", fontSize: 11 }}>✕</Btn>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            {gastos.length > 0 && (
+              <tfoot>
+                <tr style={{ borderTop: "2px solid var(--border)", background: "var(--bg-secondary)" }}>
+                  <td colSpan={5} style={{ padding: "11px 14px", fontSize: 13, fontWeight: 700 }}>Total gastos registrados</td>
+                  <td style={{ padding: "11px 14px", fontSize: 15, fontWeight: 700 }}>{fmt(totalGastos)}</td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+
+      {/* Modal observación */}
+      <Modal open={!!showObsModal} onClose={() => setShowObsModal(null)} title="Agregar observación">
+        <Field label="Observación">
+          <Input value={obs} onChange={e => setObs(e.target.value)} placeholder="Motivo de la observación..." />
+        </Field>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+          <Btn variant="secondary" onClick={() => setShowObsModal(null)}>Cancelar</Btn>
+          <Btn onClick={() => {
+            if (showObsModal === "caja") cambiarEstadoCaja("observada", obs)
+            else cambiarEstadoGasto(showObsModal, "observado", obs)
+            setShowObsModal(null)
+          }}>Guardar observación</Btn>
+        </div>
+      </Modal>
+    </div>
+  )
+}
+
+// ── Formulario agregar gasto en caja ────────────────────────
+function FormGastoCaja({ cajaId, onSave, onCancel }) {
+  const [form, setForm] = useState({
+    fecha: today(),
+    proveedor: "",
+    concepto: "",
+    categoria: "otros",
+    tipo_comprobante: "boleta",
+    nro_comprobante: "",
+    monto: "",
+  })
+  const [loading, setLoading] = useState(false)
+  const [error, setError]     = useState("")
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const handleSave = async () => {
+    if (!form.concepto || !form.monto) { setError("Concepto y monto son obligatorios"); return }
+    setLoading(true); setError("")
+    const { error: err } = await supabase.from("cajas_chicas_gastos").insert({
+      caja_chica_id: cajaId,
+      fecha: form.fecha,
+      proveedor: form.proveedor || null,
+      concepto: form.concepto,
+      categoria: form.categoria,
+      tipo_comprobante: form.tipo_comprobante,
+      nro_comprobante: form.nro_comprobante || null,
+      monto: parseFloat(form.monto),
+      estado: "pendiente",
+    })
+    if (err) setError(err.message)
+    else onSave()
+    setLoading(false)
+  }
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+      <Field label="Fecha">
+        <Input type="date" value={form.fecha} onChange={e => set("fecha", e.target.value)} />
+      </Field>
+      <Field label="Proveedor">
+        <Input value={form.proveedor} onChange={e => set("proveedor", e.target.value)} placeholder="Nombre del proveedor" />
+      </Field>
+      <Field label="Concepto" required>
+        <Input value={form.concepto} onChange={e => set("concepto", e.target.value)} placeholder="Descripción del gasto" />
+      </Field>
+      <Field label="Categoría">
+        <Select value={form.categoria} onChange={e => set("categoria", e.target.value)}>
+          {CATEGORIAS_CC.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+        </Select>
+      </Field>
+      <Field label="Tipo comprobante">
+        <Select value={form.tipo_comprobante} onChange={e => set("tipo_comprobante", e.target.value)}>
+          {COMPROBANTES_CC.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+        </Select>
+      </Field>
+      <Field label="N° Comprobante">
+        <Input value={form.nro_comprobante} onChange={e => set("nro_comprobante", e.target.value)} placeholder="B001-00123" />
+      </Field>
+      <Field label="Monto (S/.)" required>
+        <Input type="number" value={form.monto} onChange={e => set("monto", e.target.value)} placeholder="0.00" />
+      </Field>
+      {error && <div style={{ gridColumn: "1/-1", color: "#E24B4A", fontSize: 13, padding: "8px 12px", background: "#E24B4A11", borderRadius: 8 }}>{error}</div>}
+      <div style={{ gridColumn: "1/-1", display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        <Btn variant="secondary" onClick={onCancel}>Cancelar</Btn>
+        <Btn onClick={handleSave} disabled={loading}>{loading ? "Guardando..." : "Agregar gasto"}</Btn>
+      </div>
+    </div>
+  )
+}
+
+// ── Panel fondos por usuario (admin) ─────────────────────────
+function PanelFondos({ onBack }) {
+  const [usuarios, setUsuarios] = useState([])
+  const [editando, setEditando] = useState({}) // { userId: string }
+  const [saving, setSaving]     = useState({}) // { userId: bool }
+  const [loading, setLoading]   = useState(true)
+
+  useEffect(() => {
+    const load = async () => {
+      const [{ data: us }, { data: fs }] = await Promise.all([
+        supabase.from("usuarios").select("id, nombre, rol"),
+        supabase.from("usuarios_fondo").select("*"),
+      ])
+      const fondosMap = {}
+      ;(fs || []).forEach(f => { fondosMap[f.usuario_id] = f.fondo_asignado })
+      const edit = {}
+      ;(us || []).forEach(u => { edit[u.id] = (fondosMap[u.id] ?? "").toString() })
+      setUsuarios(us || [])
+      setEditando(edit)
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  const handleGuardar = async (uid) => {
+    setSaving(s => ({ ...s, [uid]: true }))
+    const monto = parseFloat(editando[uid] || 0)
+    const { data: ex } = await supabase.from("usuarios_fondo").select("id").eq("usuario_id", uid).maybeSingle()
+    if (ex) {
+      await supabase.from("usuarios_fondo").update({ fondo_asignado: monto }).eq("usuario_id", uid)
+    } else {
+      await supabase.from("usuarios_fondo").insert({ usuario_id: uid, fondo_asignado: monto })
+    }
+    setSaving(s => ({ ...s, [uid]: false }))
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+        <button onClick={onBack} style={{ background: "none", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13, color: "var(--text)" }}>← Volver</button>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700 }}>Fondos de Caja Chica por Usuario</h2>
+      </div>
+      <div style={{ background: "var(--bg-secondary)", borderRadius: 10, padding: "10px 16px", marginBottom: 20, fontSize: 13, color: "var(--muted)" }}>
+        Define el fondo permanente asignado a cada usuario. Este monto se carga automáticamente al crear una nueva caja chica.
+      </div>
+      {loading ? <Spinner /> : (
+        <div style={{ background: "var(--bg)", borderRadius: 14, border: "1px solid var(--border)", overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                {["Usuario","Rol","Fondo asignado (S/.)",""].map((h, i) => (
+                  <th key={i} style={{ padding: "12px 16px", textAlign: "left", fontSize: 10, fontWeight: 700, color: "var(--muted)", letterSpacing: 0.5, textTransform: "uppercase" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {usuarios.map((u, i) => (
+                <tr key={u.id} style={{ borderBottom: "1px solid var(--border-light)", background: i % 2 === 0 ? "transparent" : "var(--bg-secondary)" }}>
+                  <td style={{ padding: "12px 16px", fontSize: 14, fontWeight: 600 }}>{u.nombre}</td>
+                  <td style={{ padding: "12px 16px", fontSize: 12, color: "var(--muted)", textTransform: "capitalize" }}>{u.rol}</td>
+                  <td style={{ padding: "12px 16px" }}>
+                    <Input type="number" value={editando[u.id] ?? ""}
+                      onChange={e => setEditando(ed => ({ ...ed, [u.id]: e.target.value }))}
+                      placeholder="0.00" style={{ width: 150 }} />
+                  </td>
+                  <td style={{ padding: "12px 16px" }}>
+                    <Btn variant="secondary" onClick={() => handleGuardar(u.id)} disabled={saving[u.id]}
+                      style={{ fontSize: 12, padding: "5px 14px" }}>
+                      {saving[u.id] ? "Guardando..." : "Guardar"}
+                    </Btn>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
